@@ -22,7 +22,7 @@ Informasi tentang Kelas X-5:
 - Memiliki visi: Menjadi kelas yang unggul dalam akademik dan non-akademik
 - Misi: Menciptakan lingkungan belajar yang kondusif, mengembangkan potensi siswa, dan membangun karakter yang baik
 - Kegiatan: Belajar bersama, diskusi kelompok, kegiatan ekstrakurikuler, dan berbagai lomba
-- Motto: Solidaritas Tanpa Batas,Siap Kompak Sampai Tuntas
+- memiliki motto: Solidaritas Tanpa Batas, Siap Kompak sampai Tuntas!
 
 Anda harus menjawab dalam Bahasa Indonesia yang baik dan benar. Jika pertanyaan di luar konteks kelas X-5, dengan sopan arahkan kembali ke topik yang relevan.`;
 
@@ -154,9 +154,9 @@ export function ChatBot() {
             transition={{ duration: 0.2 }}
             className="fixed bottom-24 right-6 z-50 w-[calc(100vw-3rem)] sm:w-96 h-[600px] max-h-[calc(100vh-8rem)]"
           >
-            <Card className="h-full flex flex-col glass border-white/10 shadow-2xl">
+            <Card className="h-full flex flex-col bg-background/95 backdrop-blur-xl border-white/10 shadow-2xl">
               {/* Header */}
-              <div className="p-4 border-b border-white/10 flex items-center gap-3">
+              <div className="p-4 border-b border-white/10 flex items-center gap-3 bg-card/50">
                 <div className="h-10 w-10 rounded-full bg-gradient-to-br from-primary to-purple-500 flex items-center justify-center">
                   <Bot className="h-5 w-5 text-white" />
                 </div>
