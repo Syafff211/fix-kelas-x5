@@ -3,8 +3,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
-  Search, MoreVertical, MessageCircle, Users, Archive, ArrowLeft, 
-  Smile, Paperclip, Send, Check, CheckCheck, X, Sparkles
+  Search, MoreVertical, MessageCircle, ArrowLeft, 
+  Smile, Paperclip, Send, Check, CheckCheck, X
 } from 'lucide-react';
 import { useAuthStore } from '@/store';
 import { createClient } from '@/lib/supabase/client';
@@ -24,12 +24,9 @@ interface ChatUser {
 }
 
 const EMOJIS = [
-  '😀','😃','😄','😁','😆','😂','🤣','🥲','😊','😇','🙂','🙃','😉','😌','😍','🥰','😘','😗',
-  '😙','😚','🥺','😢','😭','😮‍💨','😤','😠','😡','🤬','🤯','😳','🥵','🥶','😱','😨','😰',
-  '😥','😓','🤗','🤔','🤭','🤫','🤥','😶','😐','😑','😬','🙄','😯','😦','😧','😮','😲',
-  '🥱','😴','🤤','😪','😵','🤐','🥴','🤢','🤮','🥳','🥸','😎','🤓','🧐',
-  '❤️','🧡','💛','💚','💙','💜','🖤','🤍','🤎','💔','❣️','💕','💞','💓','💗','💖','💝',
-  '👍','👎','👌','✌️','🤞','🤟','🤘','🤙','👋','🙏','💪','🔥','🎉','✨','⭐','💯'
+  '😀','😃','😄','😁','😆','😂','🤣','🥲','😊','😇','🙂','😉','😌','😍','🥰','😘',
+  '🥺','😢','😭','😮‍💨','😤','😡','🤯','😳','😱','🤗','🤔','🤫','😶','🙄','😴',
+  '🥳','😎','🤓','❤️','🧡','💛','💚','💙','💜','🖤','💔','💕','💞','👍','👎','👌','🔥','🎉','✨','⭐','💯','🙏','💪'
 ];
 
 export default function StudentMessagesPage() {
@@ -43,7 +40,6 @@ export default function StudentMessagesPage() {
   const [sending, setSending] = useState(false);
   const [showEmoji, setShowEmoji] = useState(false);
 
-  // FIX SCROLL - anti loncat
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const isAtBottomRef = useRef(true);
@@ -74,7 +70,6 @@ export default function StudentMessagesPage() {
     return format(d, 'dd/MM');
   };
 
-  // Scroll listener
   useEffect(() => {
     const el = messagesContainerRef.current;
     if (!el) return;
@@ -95,12 +90,11 @@ export default function StudentMessagesPage() {
     }
   }, []);
 
-  // close emoji when click outside
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (emojiRef.current && !emojiRef.current.contains(e.target as Node)) {
-        const target = e.target as HTMLElement;
-        if (!target.closest('[data-emoji-btn]')) setShowEmoji(false);
+        const t = e.target as HTMLElement;
+        if (!t.closest('[data-emoji-btn]')) setShowEmoji(false);
       }
     };
     document.addEventListener('mousedown', handler);
@@ -135,7 +129,7 @@ export default function StudentMessagesPage() {
     if (!user?.id) return;
     fetchChatUsers(true);
     const interval = setInterval(() => fetchChatUsers(false), 20000);
-    const ch = supabase.channel(`chat_list_${user.id}`).on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, () => fetchChatUsers(false)).subscribe();
+    const ch = supabase.channel(`list_${user.id}`).on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, () => fetchChatUsers(false)).subscribe();
     return () => { clearInterval(interval); supabase.removeChannel(ch); };
   }, [user?.id, fetchChatUsers]);
 
@@ -220,15 +214,12 @@ export default function StudentMessagesPage() {
 
   if (initialLoading) {
     return (
-      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="h-[calc(100dvh-8rem)] flex gap-4 p-2">
-        <div className="w-full md:w-[360px] bg-white dark:bg-[#1a1c1e] rounded-[20px] border border-black/[0.06] dark:border-white/[0.06] p-4 space-y-4">
-          <div className="h-10 bg-black/5 dark:bg-white/5 rounded-full animate-pulse" />
-          {[1,2,3,4,5].map(i=><div key={i} className="flex gap-3"><div className="h-12 w-12 rounded-full bg-black/5 dark:bg-white/5 animate-pulse" /><div className="flex-1 space-y-2"><div className="h-4 w-3/4 bg-black/5 dark:bg-white/5 rounded animate-pulse" /><div className="h-3 w-1/2 bg-black/5 dark:bg-white/5 rounded animate-pulse" /></div></div>)}
+      <div className="h-[calc(100dvh-8rem)] flex gap-3 p-3 bg-[#09090b]">
+        <div className="w-full md:w-[360px] bg-[#141416] rounded-[20px] border border-[#232326] p-4 space-y-4">
+          <div className="h-11 bg-[#1e1e21] rounded-full animate-pulse" />
+          {[1,2,3,4,5].map(i=><div key={i} className="flex gap-3"><div className="h-11 w-11 rounded-full bg-[#1e1e21] animate-pulse" /><div className="flex-1 space-y-2"><div className="h-4 w-3/4 bg-[#1e1e21] rounded" /><div className="h-3 w-1/2 bg-[#1e1e21] rounded" /></div></div>)}
         </div>
-        <div className="flex-1 bg-white dark:bg-[#1a1c1e] rounded-[20px] border border-black/[0.06] dark:border-white/[0.06] hidden md:flex items-center justify-center">
-          <div className="h-10 w-10 border-[3px] border-black/10 dark:border-white/10 border-t-black dark:border-t-white rounded-full animate-spin" />
-        </div>
-      </motion.div>
+      </div>
     );
   }
 
@@ -236,108 +227,93 @@ export default function StudentMessagesPage() {
     <motion.div 
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.4, ease: [0.25,0.1,0.25,1] }}
-      className="h-[calc(100dvh-8rem)] md:h-[calc(100vh-8rem)] flex gap-3 p-2 md:p-3 bg-[#f5f5f7] dark:bg-[#0a0a0b] rounded-[24px]"
+      transition={{ duration: 0.35 }}
+      className="h-[calc(100dvh-8rem)] md:h-[calc(100vh-8rem)] flex gap-3 p-2 md:p-3 bg-[#09090b] rounded-[24px]"
     >
-      {/* SIDEBAR - ORIGINAL, BUKAN WA */}
-      <motion.div 
-        layout
-        className={`w-full md:w-[380px] flex flex-col bg-white dark:bg-[#181a1e] rounded-[20px] border border-black/[0.06] dark:border-white/[0.06] shadow-[0_8px_24px_rgba(0,0,0,0.04)] overflow-hidden ${selectedChat ? 'hidden md:flex' : 'flex'}`}
-      >
-        {/* Header */}
+      {/* SIDEBAR - MODERN DARK */}
+      <div className={`w-full md:w-[380px] flex flex-col bg-[#141416] rounded-[20px] border border-[#232326] overflow-hidden shadow-[0_8px_32px_rgba(0,0,0,0.4)] ${selectedChat ? 'hidden md:flex' : 'flex'}`}>
         <div className="px-5 pt-5 pb-4">
           <div className="flex items-center justify-between mb-5">
             <div className="flex items-center gap-3">
-              <div className="h-9 w-9 rounded-full bg-[#111] dark:bg-white text-white dark:text-black flex items-center justify-center font-bold text-[14px]">{user?.full_name?.charAt(0) || 'A'}</div>
+              <div className="h-9 w-9 rounded-full bg-gradient-to-br from-violet-500 to-indigo-500 flex items-center justify-center font-bold text-[13px] text-white">{user?.full_name?.charAt(0) || 'A'}</div>
               <div>
-                <h1 className="text-[18px] font-semibold tracking-tight text-[#111] dark:text-white">Pesan</h1>
-                <p className="text-[12px] text-black/50 dark:text-white/50">{filtered.length} percakapan • {chatUsers.filter(c=>c.is_online).length} online</p>
+                <h1 className="text-[16px] font-semibold tracking-tight text-zinc-100">Pesan</h1>
+                <p className="text-[11px] text-zinc-400">{filtered.length} chat • {chatUsers.filter(c=>c.is_online).length} online</p>
               </div>
             </div>
-            <button className="h-9 w-9 rounded-full bg-black/[0.04] dark:bg-white/[0.06] hover:bg-black/[0.08] flex items-center justify-center transition-colors"><MoreVertical className="h-4 w-4" /></button>
+            <div className="h-2 w-2 rounded-full bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.5)] animate-pulse" />
           </div>
-
           <div className="relative group">
-            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-black/30 dark:text-white/30 group-focus-within:text-black dark:group-focus-within:text-white transition-colors" />
+            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-500 group-focus-within:text-violet-400 transition-colors" />
             <input
               value={searchQuery}
               onChange={e=>setSearchQuery(e.target.value)}
               placeholder="Cari teman..."
-              className="w-full h-11 pl-10 pr-4 rounded-full bg-[#f2f2f4] dark:bg-[#222529] border border-transparent focus:bg-white dark:focus:bg-[#2a2d31] focus:border-black/10 dark:focus:border-white/10 focus:outline-none focus:ring-4 focus:ring-black/[0.04] dark:focus:ring-white/[0.04] text-[14px] transition-all"
+              className="w-full h-11 pl-10 pr-4 rounded-full bg-[#1e1e21] border border-[#2a2a2e] focus:border-violet-500/50 focus:bg-[#222227] focus:outline-none focus:ring-4 focus:ring-violet-500/10 text-[13.5px] text-zinc-200 placeholder:text-zinc-500 transition-all"
             />
           </div>
         </div>
 
-        {/* List */}
-        <div className="flex-1 overflow-y-auto px-2 pb-3 space-y-1 scrollbar-thin">
-          <AnimatePresence>
-            {filtered.map((u, i) => {
-              const active = selectedChat === u.id;
-              return (
-                <motion.button
-                  key={u.id}
-                  layout
-                  initial={{ opacity: 0, y: 8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -8 }}
-                  transition={{ delay: i * 0.02, duration: 0.25 }}
-                  onClick={() => setSelectedChat(u.id)}
-                  className={`w-full flex items-center gap-3 p-3 rounded-[14px] text-left transition-all relative group
-                    ${active ? 'bg-[#111] dark:bg-white text-white dark:text-black shadow-[0_8px_20px_rgba(0,0,0,0.12)]' : 'hover:bg-black/[0.04] dark:hover:bg-white/[0.06] text-[#111] dark:text-white'}`}
-                >
-                  <div className="relative flex-shrink-0">
-                    <div className={`h-[44px] w-[44px] rounded-full flex items-center justify-center font-medium text-[15px] transition-colors ${active ? 'bg-white/15 dark:bg-black/10 text-white dark:text-black' : 'bg-[#eceef0] dark:bg-[#2a2e32] text-[#333] dark:text-[#d1d7db]'}`}>
-                      {u.full_name.charAt(0).toUpperCase()}
-                    </div>
-                    {u.is_online && <div className="absolute -bottom-0.5 -right-0.5 h-[13px] w-[13px] bg-[#22c55e] rounded-full border-[3px] border-white dark:border-[#181a1e]" />}
+        <div className="flex-1 overflow-y-auto px-2 pb-3 space-y-[2px]">
+          {filtered.map((u, i) => {
+            const active = selectedChat === u.id;
+            return (
+              <motion.button
+                key={u.id}
+                initial={{ opacity: 0, x: -8 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: i * 0.02 }}
+                onClick={() => setSelectedChat(u.id)}
+                className={`w-full flex items-center gap-3 p-3 rounded-[14px] text-left transition-all group
+                  ${active ? 'bg-[#1e1e21] border border-[#2e2e33] shadow-[0_2px_12px_rgba(0,0,0,0.2)]' : 'border border-transparent hover:bg-[#1a1a1e] hover:border-[#232326]'}`}
+              >
+                <div className="relative flex-shrink-0">
+                  <div className={`h-11 w-11 rounded-full flex items-center justify-center font-medium text-[14px] ${active ? 'bg-gradient-to-br from-violet-500 to-indigo-500 text-white' : 'bg-[#232326] text-zinc-300 group-hover:bg-[#2a2a30] group-hover:text-white'}`}>
+                    {u.full_name.charAt(0).toUpperCase()}
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-baseline justify-between gap-2">
-                      <span className={`truncate text-[14.5px] font-medium leading-none ${active ? 'text-white dark:text-black' : 'text-[#111] dark:text-white'}`}>{u.full_name}</span>
-                      <span className={`text-[11px] flex-shrink-0 ${active ? 'text-white/60 dark:text-black/60' : 'text-black/40 dark:text-white/40'}`}>{formatListTime(u.last_message_time)}</span>
-                    </div>
-                    <div className="flex items-center justify-between gap-2 mt-1.5">
-                      <span className={`truncate text-[12.5px] leading-[16px] ${active ? 'text-white/70 dark:text-black/60' : 'text-black/50 dark:text-white/50'}`}>{u.last_message || 'Belum ada pesan'}</span>
-                      {u.unread_count ? <span className={`min-w-[20px] h-5 px-1.5 rounded-full text-[11px] font-bold flex items-center justify-center ${active ? 'bg-white text-black dark:bg-black dark:text-white' : 'bg-[#111] dark:bg-white text-white dark:text-black'}`}>{u.unread_count}</span> : null}
-                    </div>
+                  {u.is_online && <div className="absolute -bottom-0.5 -right-0.5 h-[12px] w-[12px] bg-emerald-500 rounded-full border-[2.5px] border-[#141416] shadow-[0_0_8px_rgba(16,185,129,0.5)]" />}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span className={`truncate text-[14px] font-[500] ${active ? 'text-zinc-100' : 'text-zinc-200'}`}>{u.full_name}</span>
+                    <span className={`text-[11px] flex-shrink-0 ${u.unread_count ? 'text-violet-400 font-bold' : 'text-zinc-500'}`}>{formatListTime(u.last_message_time)}</span>
                   </div>
-                </motion.button>
-              );
-            })}
-          </AnimatePresence>
+                  <div className="flex items-center justify-between gap-2 mt-1">
+                    <span className={`truncate text-[12.5px] ${active ? 'text-zinc-400' : 'text-zinc-500'}`}>{u.last_message || 'Belum ada pesan'}</span>
+                    {u.unread_count ? <span className="min-w-[20px] h-5 px-1.5 rounded-full text-[11px] font-bold flex items-center justify-center bg-violet-600 text-white shadow-[0_2px_8px_rgba(124,58,237,0.4)]">{u.unread_count}</span> : null}
+                  </div>
+                </div>
+              </motion.button>
+            );
+          })}
         </div>
-      </motion.div>
+      </div>
 
-      {/* CHAT AREA - ORIGINAL */}
-      <div className={`flex-1 flex flex-col bg-white dark:bg-[#181a1e] rounded-[20px] border border-black/[0.06] dark:border-white/[0.06] shadow-[0_8px_24px_rgba(0,0,0,0.04)] overflow-hidden min-w-0 ${selectedChat ? 'flex' : 'hidden md:flex'}`}>
+      {/* CHAT AREA */}
+      <div className={`flex-1 flex flex-col bg-[#121214] rounded-[20px] border border-[#232326] overflow-hidden min-w-0 shadow-[0_8px_32px_rgba(0,0,0,0.4)] ${selectedChat ? 'flex' : 'hidden md:flex'}`}>
         {selectedChat && selectedUser ? (
           <>
-            {/* Header tanpa telp/video call */}
-            <div className="h-[64px] px-5 flex items-center justify-between border-b border-black/[0.06] dark:border-white/[0.06] flex-shrink-0 bg-white/80 dark:bg-[#181a1e]/80 backdrop-blur-xl">
+            <div className="h-[64px] px-5 flex items-center justify-between border-b border-[#232326] bg-[#141416]/90 backdrop-blur-xl flex-shrink-0">
               <div className="flex items-center gap-3 min-w-0">
-                <button onClick={() => setSelectedChat(null)} className="md:hidden h-9 w-9 rounded-full bg-black/5 dark:bg-white/10 flex items-center justify-center"><ArrowLeft className="h-5 w-5" /></button>
+                <button onClick={() => setSelectedChat(null)} className="md:hidden h-9 w-9 rounded-full bg-[#1e1e21] flex items-center justify-center text-zinc-400"><ArrowLeft className="h-5 w-5" /></button>
                 <div className="relative">
-                  <div className="h-9 w-9 rounded-full bg-[#111] dark:bg-white text-white dark:text-black flex items-center justify-center font-medium text-[14px]">{selectedUser.full_name.charAt(0).toUpperCase()}</div>
-                  {selectedUser.is_online && <div className="absolute bottom-0 right-0 h-2.5 w-2.5 bg-[#22c55e] rounded-full border-2 border-white dark:border-[#181a1e]" />}
+                  <div className="h-9 w-9 rounded-full bg-gradient-to-br from-violet-500 to-indigo-500 flex items-center justify-center font-medium text-white text-[13px]">{selectedUser.full_name.charAt(0).toUpperCase()}</div>
+                  {selectedUser.is_online && <div className="absolute bottom-0 right-0 h-2.5 w-2.5 bg-emerald-500 rounded-full border-2 border-[#141416]" />}
                 </div>
                 <div className="min-w-0">
-                  <div className="text-[14.5px] font-semibold text-[#111] dark:text-white truncate flex items-center gap-2">
+                  <div className="text-[14px] font-semibold text-zinc-100 truncate flex items-center gap-2">
                     {selectedUser.full_name}
-                    {selectedUser.is_online && <span className="h-1.5 w-1.5 bg-[#22c55e] rounded-full animate-pulse" />}
+                    {selectedUser.is_online && <span className="h-1.5 w-1.5 bg-emerald-500 rounded-full animate-pulse" />}
                   </div>
-                  <div className={`text-[12px] truncate ${selectedUser.is_online ? 'text-[#16a34a] dark:text-[#22c55e]' : 'text-black/50 dark:text-white/50'}`}>
+                  <div className={`text-[11.5px] truncate ${selectedUser.is_online ? 'text-emerald-400' : 'text-zinc-500'}`}>
                     {getLastSeenText(selectedUser.last_seen, selectedUser.is_online)}
                   </div>
                 </div>
               </div>
-              <div className="flex items-center gap-1">
-                <button className="h-9 w-9 rounded-full hover:bg-black/5 dark:hover:bg-white/10 flex items-center justify-center transition-colors"><Search className="h-4 w-4 text-black/60 dark:text-white/60" /></button>
-                <button className="h-9 w-9 rounded-full hover:bg-black/5 dark:hover:bg-white/10 flex items-center justify-center transition-colors"><MoreVertical className="h-4 w-4 text-black/60 dark:text-white/60" /></button>
-              </div>
+              <button className="h-9 w-9 rounded-full bg-[#1e1e21] hover:bg-[#252529] flex items-center justify-center text-zinc-400 transition-colors"><MoreVertical className="h-4 w-4" /></button>
             </div>
 
-            {/* Messages - smooth */}
-            <div ref={messagesContainerRef} className="flex-1 overflow-y-auto overflow-x-hidden px-4 md:px-6 py-6 space-y-3 bg-[#fafafa] dark:bg-[#101214] overscroll-contain scroll-smooth">
+            <div ref={messagesContainerRef} className="flex-1 overflow-y-auto overflow-x-hidden px-4 md:px-6 py-6 space-y-3 overscroll-contain scroll-smooth">
               <AnimatePresence initial={false}>
                 {messages.map((m, idx) => {
                   const isOwn = m.sender_id === user?.id;
@@ -346,24 +322,19 @@ export default function StudentMessagesPage() {
                   return (
                     <div key={m.id}>
                       {showDate && (
-                        <motion.div initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} className="flex justify-center my-6">
-                          <span className="px-3 py-1 rounded-full bg-black/[0.06] dark:bg-white/[0.08] text-[11px] font-medium tracking-wide text-black/50 dark:text-white/50">
+                        <div className="flex justify-center my-5">
+                          <span className="px-3 py-1 rounded-full bg-[#1e1e21] border border-[#232326] text-[11px] font-medium text-zinc-400">
                             {isToday(new Date(m.created_at)) ? 'Hari ini' : isYesterday(new Date(m.created_at)) ? 'Kemarin' : format(new Date(m.created_at), 'd MMMM yyyy', { locale: id })}
                           </span>
-                        </motion.div>
+                        </div>
                       )}
-                      <motion.div
-                        initial={{ opacity: 0, y: 8, scale: 0.98 }}
-                        animate={{ opacity: 1, y: 0, scale: 1 }}
-                        transition={{ duration: 0.22, ease: [0.25,0.1,0.25,1] }}
-                        className={`flex ${isOwn ? 'justify-end' : 'justify-start'}`}
-                      >
-                        <div className={`group relative max-w-[78%] md:max-w-[62%] px-4 py-2.5 rounded-[18px] text-[14px] leading-[20px] shadow-[0_1px_2px_rgba(0,0,0,0.06)]
-                          ${isOwn ? 'bg-[#111] dark:bg-white text-white dark:text-black rounded-br-[6px]' : 'bg-white dark:bg-[#23262a] border border-black/[0.06] dark:border-white/[0.06] text-[#111] dark:text-white rounded-bl-[6px]'}`}>
+                      <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }} className={`flex ${isOwn ? 'justify-end' : 'justify-start'}`}>
+                        <div className={`relative max-w-[78%] md:max-w-[60%] px-4 py-2.5 rounded-[18px] text-[14px] leading-[20px] 
+                          ${isOwn ? 'bg-gradient-to-br from-violet-600 to-indigo-600 text-white rounded-br-[6px] shadow-[0_4px_16px_rgba(124,58,237,0.25)]' : 'bg-[#1e1e21] border border-[#232326] text-zinc-200 rounded-bl-[6px]'}`}>
                           <span className="whitespace-pre-wrap break-words">{m.content}</span>
                           <div className={`flex items-center gap-1 mt-1 ${isOwn ? 'justify-end' : 'justify-start'}`}>
-                            <span className={`text-[10.5px] ${isOwn ? 'text-white/60 dark:text-black/50' : 'text-black/40 dark:text-white/40'}`}>{format(new Date(m.created_at), 'HH:mm')}</span>
-                            {isOwn && <span className="ml-0.5">{m.is_read ? <CheckCheck className="h-3.5 w-3.5 text-white/80 dark:text-black/60" /> : <Check className="h-3.5 w-3.5 text-white/50 dark:text-black/40" />}</span>}
+                            <span className={`text-[10.5px] ${isOwn ? 'text-white/70' : 'text-zinc-500'}`}>{format(new Date(m.created_at), 'HH:mm')}</span>
+                            {isOwn && <span className="ml-0.5">{m.is_read ? <CheckCheck className="h-3.5 w-3.5 text-white/90" /> : <Check className="h-3.5 w-3.5 text-white/60" />}</span>}
                           </div>
                         </div>
                       </motion.div>
@@ -374,26 +345,23 @@ export default function StudentMessagesPage() {
               <div ref={messagesEndRef} className="h-0" />
             </div>
 
-            {/* Input + Emoji Picker */}
-            <div className="relative border-t border-black/[0.06] dark:border-white/[0.06] bg-white dark:bg-[#181a1e] p-3 flex-shrink-0">
-              {/* Emoji Picker */}
+            <div className="relative border-t border-[#232326] bg-[#141416] p-3 flex-shrink-0">
               <AnimatePresence>
                 {showEmoji && (
                   <motion.div
                     ref={emojiRef}
-                    initial={{ opacity: 0, y: 10, scale: 0.98 }}
+                    initial={{ opacity: 0, y: 8, scale: 0.98 }}
                     animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: 10, scale: 0.98 }}
-                    transition={{ duration: 0.18 }}
-                    className="absolute bottom-[60px] left-3 right-3 md:right-auto md:w-[360px] max-h-[300px] overflow-hidden bg-white dark:bg-[#23262a] rounded-[18px] shadow-[0_16px_48px_rgba(0,0,0,0.16)] border border-black/[0.08] dark:border-white/[0.08] z-20 flex flex-col"
+                    exit={{ opacity: 0, y: 8, scale: 0.98 }}
+                    className="absolute bottom-[64px] left-3 right-3 md:right-auto md:w-[340px] bg-[#1e1e21] rounded-[16px] shadow-[0_16px_40px_rgba(0,0,0,0.5)] border border-[#2a2a30] z-20 overflow-hidden"
                   >
-                    <div className="flex items-center justify-between px-4 py-3 border-b border-black/[0.06] dark:border-white/[0.06]">
-                      <span className="text-[13px] font-medium">Emoji</span>
-                      <button onClick={()=>setShowEmoji(false)} className="h-7 w-7 rounded-full bg-black/5 dark:bg-white/10 flex items-center justify-center"><X className="h-3.5 w-3.5" /></button>
+                    <div className="flex items-center justify-between px-4 py-3 border-b border-[#232326]">
+                      <span className="text-[12px] font-semibold text-zinc-200">Emoji</span>
+                      <button onClick={()=>setShowEmoji(false)} className="h-6 w-6 rounded-full bg-[#2a2a30] flex items-center justify-center text-zinc-400"><X className="h-3.5 w-3.5" /></button>
                     </div>
-                    <div className="overflow-y-auto p-3 grid grid-cols-8 gap-1 flex-1">
+                    <div className="p-2 grid grid-cols-7 gap-1 max-h-[220px] overflow-y-auto">
                       {EMOJIS.map(e=>(
-                        <button key={e} onClick={()=>insertEmoji(e)} className="h-9 w-9 rounded-[10px] hover:bg-black/5 dark:hover:bg-white/10 flex items-center justify-center text-[20px] transition-colors active:scale-90">
+                        <button key={e} onClick={()=>insertEmoji(e)} className="h-9 w-9 rounded-[10px] hover:bg-[#2a2a30] flex items-center justify-center text-[20px] active:scale-90 transition-all">
                           {e}
                         </button>
                       ))}
@@ -403,15 +371,9 @@ export default function StudentMessagesPage() {
               </AnimatePresence>
 
               <div className="flex items-end gap-2">
-                <div className="flex items-center gap-1">
-                  <button data-emoji-btn onClick={()=>setShowEmoji(v=>!v)} className={`h-10 w-10 rounded-full flex items-center justify-center transition-all ${showEmoji ? 'bg-[#111] dark:bg-white text-white dark:text-black' : 'hover:bg-black/5 dark:hover:bg-white/10 text-black/50 dark:text-white/50'}`}>
-                    <Smile className="h-5 w-5" />
-                  </button>
-                  <button className="h-10 w-10 rounded-full hover:bg-black/5 dark:hover:bg-white/10 flex items-center justify-center text-black/40 dark:text-white/40 transition-colors">
-                    <Paperclip className="h-5 w-5" />
-                  </button>
-                </div>
-
+                <button data-emoji-btn onClick={()=>setShowEmoji(v=>!v)} className={`h-11 w-11 rounded-full flex items-center justify-center transition-all ${showEmoji ? 'bg-violet-600 text-white shadow-[0_4px_12px_rgba(124,58,237,0.3)]' : 'bg-[#1e1e21] hover:bg-[#252529] text-zinc-400 hover:text-zinc-200 border border-[#232326]'}`}>
+                  <Smile className="h-5 w-5" />
+                </button>
                 <div className="flex-1 relative">
                   <input
                     ref={inputRef}
@@ -419,35 +381,30 @@ export default function StudentMessagesPage() {
                     onChange={e=>setNewMessage(e.target.value)}
                     onKeyDown={e=>{ if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); sendMessage(); } }}
                     placeholder="Ketik pesan..."
-                    className="w-full h-[44px] rounded-full bg-[#f2f2f4] dark:bg-[#23262a] border border-transparent focus:bg-white dark:focus:bg-[#2a2d31] focus:border-black/10 dark:focus:border-white/10 focus:outline-none focus:ring-4 focus:ring-black/[0.04] dark:focus:ring-white/[0.06] px-4 pr-12 text-[14.5px] placeholder:text-black/30 dark:placeholder:text-white/30 transition-all"
+                    className="w-full h-[44px] rounded-full bg-[#1e1e21] border border-[#2a2a2e] focus:border-violet-500/50 focus:bg-[#222227] focus:outline-none focus:ring-4 focus:ring-violet-500/10 px-5 text-[14px] text-zinc-100 placeholder:text-zinc-500 transition-all"
                   />
-                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] text-black/20 dark:text-white/20 hidden md:block">↵</span>
                 </div>
-
                 <motion.button
                   whileTap={{ scale: 0.92 }}
                   onClick={sendMessage}
                   disabled={!newMessage.trim() || sending}
-                  className="h-11 w-11 rounded-full bg-[#111] dark:bg-white text-white dark:text-black flex items-center justify-center shadow-[0_6px_16px_rgba(0,0,0,0.15)] hover:shadow-[0_8px_20px_rgba(0,0,0,0.18)] disabled:opacity-40 disabled:shadow-none transition-all"
+                  className="h-11 w-11 rounded-full bg-gradient-to-br from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white flex items-center justify-center shadow-[0_6px_16px_rgba(124,58,237,0.35)] disabled:opacity-40 disabled:shadow-none transition-all"
                 >
-                  <Send className="h-[18px] w-[18px] ml-[2px]" />
+                  <Send className="h-[18px] w-[18px] ml-[1px]" />
                 </motion.button>
               </div>
             </div>
           </>
         ) : (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex-1 flex items-center justify-center p-8 bg-[#fafafa] dark:bg-[#101214]">
-            <div className="text-center max-w-[320px]">
-              <div className="h-20 w-20 rounded-[20px] bg-[#111] dark:bg-white mx-auto mb-5 flex items-center justify-center shadow-[0_12px_24px_rgba(0,0,0,0.12)]">
-                <MessageCircle className="h-9 w-9 text-white dark:text-black" />
+          <div className="flex-1 flex items-center justify-center p-8">
+            <div className="text-center max-w-[300px]">
+              <div className="h-16 w-16 rounded-[16px] bg-gradient-to-br from-violet-600 to-indigo-600 mx-auto mb-4 flex items-center justify-center shadow-[0_8px_20px_rgba(124,58,237,0.3)]">
+                <MessageCircle className="h-8 w-8 text-white" />
               </div>
-              <h3 className="text-[18px] font-semibold tracking-tight">Pilih percakapan</h3>
-              <p className="text-[13.5px] leading-5 text-black/50 dark:text-white/50 mt-2">Pilih teman di sebelah kiri untuk mulai ngobrol dengan teman.</p>
-              <div className="mt-6 flex items-center justify-center gap-2 text-[12px] text-black/30 dark:text-white/30">
-                <Sparkles className="h-3.5 w-3.5" /> End-to-end encrypted
-              </div>
+              <h3 className="text-[16px] font-semibold text-zinc-100">Pilih percakapan</h3>
+              <p className="text-[13px] leading-5 text-zinc-500 mt-2">Pilih teman di kiri untuk mulai ngobrol.</p>
             </div>
-          </motion.div>
+          </div>
         )}
       </div>
     </motion.div>
