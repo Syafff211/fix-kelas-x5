@@ -12,7 +12,7 @@ export async function POST(request: NextRequest) {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'mixtral-8x7b-32768', // Fast and capable model
+        model: 'openai/gpt-oss-120b', // Fast and capable model
         messages: [
           { role: 'system', content: systemPrompt },
           ...messages,
