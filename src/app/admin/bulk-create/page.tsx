@@ -7,18 +7,6 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
-import { createClient } from '@supabase/supabase-js';
-
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false,
-    },
-  }
-);
 
 const DEFAULT_PASSWORD = 'ganesha123';
 
@@ -33,89 +21,29 @@ export default function BulkCreatePage() {
     setStats({ total: 0, success: 0, error: 0 });
 
     try {
-      // Get all profiles without user_id
-      const { data: profiles, error: fetchError } = await supabaseAdmin
-        .from('profiles')
-        .select('*')
-        .is('user_id', null)
-        .eq('role', 'student');
+      const response = await fetch('/api/admin/bulk-create-auth', {
+        method: 'POST',
+        headers: {
+          'Authorization': 'Bearer bulk-create-secret-key-2026',
+          'Content-Type': 'application/json',
+        },
+      });
 
-      if (fetchError) throw fetchError;
+      const data = await response.json();
 
-      if (!profiles || profiles.length === 0) {
-        toast.info('Tidak ada profile yang perlu dibuatkan auth user');
-        setRunning(false);
-        return;
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to create users');
       }
 
-      setStats({ total: profiles.length, success: 0, error: 0 });
-      const newResults: any[] = [];
-      let successCount = 0;
-      let errorCount = 0;
+      setStats({
+        total: data.total || 0,
+        success: data.successCount || 0,
+        error: data.errorCount || 0,
+      });
 
-      // Create auth user for each profile
-      for (const profile of profiles) {
-        try {
-          // Create auth user
-          const { data: authUser, error: authError } = await supabaseAdmin.auth.admin.createUser({
-            email: profile.email,
-            password: DEFAULT_PASSWORD,
-            email_confirm: true,
-            user_metadata: {
-              full_name: profile.full_name,
-              role: 'student',
-            },
-          });
+      setResults(data.results || []);
 
-          if (authError) {
-            newResults.push({
-              email: profile.email,
-              status: 'error',
-              error: authError.message,
-            });
-            errorCount++;
-            setStats({ total: profiles.length, success: successCount, error: errorCount });
-            setResults([...newResults]);
-            continue;
-          }
-
-          // Update profile with user_id
-          const { error: updateError } = await supabaseAdmin
-            .from('profiles')
-            .update({ user_id: authUser.user.id })
-            .eq('id', profile.id);
-
-          if (updateError) {
-            newResults.push({
-              email: profile.email,
-              status: 'error',
-              error: `Auth created but profile update failed: ${updateError.message}`,
-            });
-            errorCount++;
-          } else {
-            newResults.push({
-              email: profile.email,
-              status: 'success',
-              user_id: authUser.user.id,
-            });
-            successCount++;
-          }
-
-          setStats({ total: profiles.length, success: successCount, error: errorCount });
-          setResults([...newResults]);
-        } catch (error: any) {
-          newResults.push({
-            email: profile.email,
-            status: 'error',
-            error: error.message || 'Unknown error',
-          });
-          errorCount++;
-          setStats({ total: profiles.length, success: successCount, error: errorCount });
-          setResults([...newResults]);
-        }
-      }
-
-      toast.success(`Selesai! ${successCount} berhasil, ${errorCount} error`);
+      toast.success(`Selesai! ${data.successCount} berhasil, ${data.errorCount} error`);
     } catch (error: any) {
       console.error('Bulk create error:', error);
       toast.error('Error: ' + error.message);
@@ -176,7 +104,7 @@ export default function BulkCreatePage() {
             {running ? (
               <>
                 <Loader2 className="h-5 w-5 mr-2 animate-spin" />
-                Memproses... ({stats.success + stats.error}/{stats.total})
+                Memproses...
               </>
             ) : (
               <>
