@@ -1,6 +1,26 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 
+// Helper function untuk delay
+const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+// Helper function untuk retry dengan exponential backoff
+async function retryWithBackoff(fn: () => Promise<any>, maxRetries = 3): Promise<any> {
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      return await fn();
+    } catch (error: any) {
+      if (error.message?.includes('rate limit') && i < maxRetries - 1) {
+        const waitTime = Math.pow(2, i) * 5000; // 5s, 10s, 20s
+        console.log(`Rate limit hit, waiting ${waitTime}ms before retry ${i + 1}/${maxRetries}`);
+        await delay(waitTime);
+        continue;
+      }
+      throw error;
+    }
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -53,51 +73,59 @@ export async function POST(request: NextRequest) {
     let successCount = 0;
     let errorCount = 0;
 
-    // Create auth user for each profile WITH DELAY
+    // Create auth user for each profile WITH LONG DELAY
     for (let i = 0; i < profiles.length; i++) {
       const profile = profiles[i];
       
       try {
-        // Add delay to avoid rate limit (500ms between each request)
+        // Add VERY LONG delay to avoid rate limit (3 seconds between each request)
         if (i > 0) {
-          await new Promise(resolve => setTimeout(resolve, 500));
+          await delay(3000); // 3 seconds
         }
 
-        // Try signUp
-        const { data: signUpData, error: signUpError } = await supabaseAdmin.auth.signUp({
-          email: profile.email,
-          password: DEFAULT_PASSWORD,
-          options: {
-            data: {
-              full_name: profile.full_name,
-              role: 'student',
+        console.log(`Processing ${i + 1}/${profiles.length}: ${profile.email}`);
+
+        // Use retry logic for signUp
+        const signUpResult = await retryWithBackoff(async () => {
+          const { data, error } = await supabaseAdmin.auth.signUp({
+            email: profile.email,
+            password: DEFAULT_PASSWORD,
+            options: {
+              data: {
+                full_name: profile.full_name,
+                role: 'student',
+              },
             },
-          },
+          });
+          
+          if (error) throw error;
+          return data;
         });
 
         let userId: string | null = null;
 
-        if (!signUpError && signUpData.user) {
-          userId = signUpData.user.id;
+        if (signUpResult.user) {
+          userId = signUpResult.user.id;
           
-          // Confirm email
-          await supabaseAdmin.auth.admin.updateUserById(userId, { email_confirm: true });
+          // Confirm email with retry
+          await retryWithBackoff(async () => {
+            const { error } = await supabaseAdmin.auth.admin.updateUserById(userId!, { 
+              email_confirm: true 
+            });
+            if (error) throw error;
+          });
         } else {
           // Check if user already exists
-          if (signUpError?.message?.includes('already registered')) {
-            const { data: existingUsers } = await supabaseAdmin.auth.admin.listUsers();
-            const existingUser = existingUsers?.users?.find(u => u.email === profile.email);
-            
-            if (existingUser) {
-              userId = existingUser.id;
-            }
-          }
-
-          if (!userId) {
+          const { data: existingUsers } = await supabaseAdmin.auth.admin.listUsers();
+          const existingUser = existingUsers?.users?.find(u => u.email === profile.email);
+          
+          if (existingUser) {
+            userId = existingUser.id;
+          } else {
             results.push({
               email: profile.email,
               status: 'error',
-              error: signUpError?.message || 'Failed to create user',
+              error: 'Failed to create user and user not found',
             });
             errorCount++;
             continue;
@@ -120,6 +148,7 @@ export async function POST(request: NextRequest) {
           continue;
         }
 
+        console.log(`✓ Success: ${profile.email}`);
         results.push({
           email: profile.email,
           status: 'success',
@@ -127,6 +156,7 @@ export async function POST(request: NextRequest) {
         });
         successCount++;
       } catch (error: any) {
+        console.error(`✗ Error for ${profile.email}:`, error.message);
         results.push({
           email: profile.email,
           status: 'error',
