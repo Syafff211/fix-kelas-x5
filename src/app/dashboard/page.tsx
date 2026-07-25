@@ -45,7 +45,7 @@ const upcomingAssignments = [
 ];
 
 const quickActions = [
-  { icon: MessageSquare, label: 'Chat Teman', href: '/dashboard/chats', color: 'text-primary', bg: 'bg-primary/20' },
+  { icon: MessageSquare, label: 'Chat Teman', href: '/dashboard/messages', color: 'text-primary', bg: 'bg-primary/20' },
   { icon: Users, label: 'Lihat Teman', href: '/dashboard/friends', color: 'text-info', bg: 'bg-info/20' },
   { icon: Calendar, label: 'Jadwal', href: '/dashboard/schedule', color: 'text-success', bg: 'bg-success/20' },
   { icon: Bell, label: 'Notifikasi', href: '/dashboard/notifications', color: 'text-warning', bg: 'bg-warning/20' },
