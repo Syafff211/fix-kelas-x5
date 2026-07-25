@@ -2,23 +2,26 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Send, Smile, Paperclip, Search, Users } from 'lucide-react';
+import { Send, Smile, Paperclip, Search, Users, Check, CheckCheck, ArrowLeft } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useAuthStore } from '@/store';
 import { createClient } from '@/lib/supabase/client';
-import { formatDistanceToNow } from 'date-fns';
+import { formatDistanceToNow, format } from 'date-fns';
 import { id } from 'date-fns/locale';
+import { toast } from 'sonner';
 
 const supabase = createClient();
 
 interface Message {
   id: string;
   sender_id: string;
+  receiver_id: string;
   content: string;
   created_at: string;
+  is_read: boolean;
   sender?: {
     full_name: string;
     avatar_url?: string;
@@ -32,6 +35,8 @@ interface ChatUser {
   last_message?: string;
   last_message_time?: string;
   unread_count?: number;
+  is_online?: boolean;
+  last_seen?: string;
 }
 
 export default function StudentMessagesPage() {
@@ -42,32 +47,80 @@ export default function StudentMessagesPage() {
   const [newMessage, setNewMessage] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
+  const [sending, setSending] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
-  // Fetch chat users (all students except current user)
+  // Fetch chat users with last message and online status
   useEffect(() => {
     if (!user) return;
 
     const fetchChatUsers = async () => {
-      const { data, error } = await supabase
+      setLoading(true);
+      
+      // Get all students
+      const { data: students, error: studentsError } = await supabase
         .from('profiles')
         .select('*')
         .eq('role', 'student')
         .neq('id', user.id)
         .order('full_name');
 
-      if (!error && data) {
-        setChatUsers(data.map(u => ({
-          id: u.id,
-          full_name: u.full_name,
-          avatar_url: u.avatar_url,
-          unread_count: 0,
-        })));
+      if (studentsError) {
+        console.error('Error fetching students:', studentsError);
+        setLoading(false);
+        return;
       }
+
+      // Get last messages and unread counts for each user
+      const usersWithMessages = await Promise.all(
+        (students || []).map(async (student) => {
+          // Get last message
+          const { data: lastMsg } = await supabase
+            .from('messages')
+            .select('*')
+            .or(`and(sender_id.eq.${user.id},receiver_id.eq.${student.id}),and(sender_id.eq.${student.id},receiver_id.eq.${user.id})`)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .single();
+
+          // Get unread count
+          const { count: unreadCount } = await supabase
+            .from('messages')
+            .select('*', { count: 'exact', head: true })
+            .eq('sender_id', student.id)
+            .eq('receiver_id', user.id)
+            .eq('is_read', false);
+
+          return {
+            id: student.id,
+            full_name: student.full_name,
+            avatar_url: student.avatar_url,
+            last_message: lastMsg?.content || '',
+            last_message_time: lastMsg?.created_at,
+            unread_count: unreadCount || 0,
+            is_online: false, // Will be updated by realtime
+            last_seen: student.updated_at,
+          };
+        })
+      );
+
+      // Sort by last message time
+      usersWithMessages.sort((a, b) => {
+        if (!a.last_message_time) return 1;
+        if (!b.last_message_time) return -1;
+        return new Date(b.last_message_time).getTime() - new Date(a.last_message_time).getTime();
+      });
+
+      setChatUsers(usersWithMessages);
       setLoading(false);
     };
 
     fetchChatUsers();
+
+    // Refresh every 10 seconds
+    const interval = setInterval(fetchChatUsers, 10000);
+    return () => clearInterval(interval);
   }, [user]);
 
   // Fetch messages when chat is selected
@@ -87,6 +140,14 @@ export default function StudentMessagesPage() {
       if (!error && data) {
         setMessages(data);
         scrollToBottom();
+        
+        // Mark messages as read
+        await supabase
+          .from('messages')
+          .update({ is_read: true })
+          .eq('sender_id', selectedChat)
+          .eq('receiver_id', user.id)
+          .eq('is_read', false);
       }
     };
 
@@ -94,7 +155,7 @@ export default function StudentMessagesPage() {
 
     // Subscribe to real-time messages
     const channel = supabase
-      .channel(`chat_${selectedChat}`)
+      .channel(`chat_${user.id}_${selectedChat}`)
       .on(
         'postgres_changes',
         {
@@ -110,7 +171,31 @@ export default function StudentMessagesPage() {
           ) {
             setMessages(prev => [...prev, { ...newMsg, sender: { full_name: user.full_name || 'You' } }]);
             scrollToBottom();
+            
+            // Mark as read if received message
+            if (newMsg.sender_id === selectedChat) {
+              supabase
+                .from('messages')
+                .update({ is_read: true })
+                .eq('id', newMsg.id);
+            }
           }
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'messages',
+        },
+        (payload) => {
+          const updatedMsg = payload.new as Message;
+          setMessages(prev =>
+            prev.map(msg =>
+              msg.id === updatedMsg.id ? { ...msg, ...updatedMsg } : msg
+            )
+          );
         }
       )
       .subscribe();
@@ -121,22 +206,38 @@ export default function StudentMessagesPage() {
   }, [selectedChat, user]);
 
   const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    setTimeout(() => {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }, 100);
   };
 
   const sendMessage = async () => {
-    if (!newMessage.trim() || !selectedChat || !user) return;
+    if (!newMessage.trim() || !selectedChat || !user || sending) return;
 
-    const messageData = {
-      sender_id: user.id,
-      receiver_id: selectedChat,
-      content: newMessage.trim(),
-    };
+    setSending(true);
+    const messageContent = newMessage.trim();
+    setNewMessage('');
 
-    const { error } = await supabase.from('messages').insert([messageData]);
+    try {
+      const { error } = await supabase.from('messages').insert([{
+        sender_id: user.id,
+        receiver_id: selectedChat,
+        content: messageContent,
+        is_read: false,
+      }]);
 
-    if (!error) {
-      setNewMessage('');
+      if (error) {
+        console.error('Error sending message:', error);
+        toast.error('Gagal mengirim pesan: ' + error.message);
+        setNewMessage(messageContent);
+      }
+    } catch (error: any) {
+      console.error('Error sending message:', error);
+      toast.error('Gagal mengirim pesan');
+      setNewMessage(messageContent);
+    } finally {
+      setSending(false);
+      inputRef.current?.focus();
     }
   };
 
@@ -147,14 +248,49 @@ export default function StudentMessagesPage() {
     }
   };
 
+  const formatMessageTime = (dateString: string) => {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffDays = Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24));
+
+    if (diffDays === 0) {
+      return format(date, 'HH:mm');
+    } else if (diffDays === 1) {
+      return 'Kemarin';
+    } else if (diffDays < 7) {
+      return format(date, 'EEEE', { locale: id });
+    } else {
+      return format(date, 'dd/MM/yyyy');
+    }
+  };
+
+  const getLastSeenText = (lastSeen?: string, isOnline?: boolean) => {
+    if (isOnline) return 'Online';
+    if (!lastSeen) return 'Terakhir dilihat baru-baru ini';
+    
+    const date = new Date(lastSeen);
+    const now = new Date();
+    const diffMinutes = Math.floor((now.getTime() - date.getTime()) / (1000 * 60));
+
+    if (diffMinutes < 1) return 'Baru saja';
+    if (diffMinutes < 60) return `Terakhir dilihat ${diffMinutes} menit lalu`;
+    
+    return `Terakhir dilihat ${formatDistanceToNow(date, { addSuffix: true, locale: id })}`;
+  };
+
   const filteredUsers = chatUsers.filter(u =>
     u.full_name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
+  const selectedUser = chatUsers.find(u => u.id === selectedChat);
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
-        <div className="spinner" />
+        <div className="text-center">
+          <div className="spinner mb-4" />
+          <p className="text-muted-foreground">Memuat pesan...</p>
+        </div>
       </div>
     );
   }
@@ -162,9 +298,9 @@ export default function StudentMessagesPage() {
   return (
     <div className="h-[calc(100vh-8rem)] flex gap-4">
       {/* Chat List */}
-      <Card className="w-80 flex flex-col">
+      <Card className={`w-full md:w-96 flex flex-col ${selectedChat ? 'hidden md:flex' : 'flex'}`}>
         <div className="p-4 border-b border-white/10">
-          <h2 className="text-lg font-bold mb-3 flex items-center gap-2">
+          <h2 className="text-xl font-bold mb-3 flex items-center gap-2">
             <Users className="h-5 w-5" />
             Messages
           </h2>
@@ -180,31 +316,48 @@ export default function StudentMessagesPage() {
         </div>
         <div className="flex-1 overflow-y-auto">
           {filteredUsers.length === 0 ? (
-            <div className="p-4 text-center text-muted-foreground">
-              Tidak ada user ditemukan
+            <div className="p-8 text-center text-muted-foreground">
+              <Users className="h-12 w-12 mx-auto mb-3 opacity-50" />
+              <p>Tidak ada user ditemukan</p>
             </div>
           ) : (
             filteredUsers.map((chatUser) => (
               <button
                 key={chatUser.id}
                 onClick={() => setSelectedChat(chatUser.id)}
-                className={`w-full p-4 flex items-center gap-3 hover:bg-white/5 transition-colors ${
-                  selectedChat === chatUser.id ? 'bg-primary/10 border-l-4 border-primary' : ''
+                className={`w-full p-4 flex items-center gap-3 hover:bg-white/5 transition-all ${
+                  selectedChat === chatUser.id ? 'bg-primary/10 border-l-4 border-primary' : 'border-l-4 border-transparent'
                 }`}
               >
-                <div className="h-10 w-10 rounded-full bg-primary/20 flex items-center justify-center text-primary font-semibold">
-                  {chatUser.full_name.charAt(0)}
+                <div className="relative">
+                  <div className="h-12 w-12 rounded-full bg-gradient-to-br from-primary/30 to-purple-500/30 flex items-center justify-center text-primary font-bold text-lg">
+                    {chatUser.full_name.charAt(0)}
+                  </div>
+                  {chatUser.is_online && (
+                    <div className="absolute bottom-0 right-0 h-3 w-3 bg-green-500 rounded-full border-2 border-card" />
+                  )}
                 </div>
-                <div className="flex-1 text-left">
-                  <div className="font-medium truncate">{chatUser.full_name}</div>
-                  {chatUser.last_message && (
+                <div className="flex-1 text-left min-w-0">
+                  <div className="flex items-center justify-between mb-1">
+                    <div className="font-semibold truncate">{chatUser.full_name}</div>
+                    {chatUser.last_message_time && (
+                      <div className="text-xs text-muted-foreground flex-shrink-0 ml-2">
+                        {formatMessageTime(chatUser.last_message_time)}
+                      </div>
+                    )}
+                  </div>
+                  {chatUser.last_message ? (
                     <div className="text-sm text-muted-foreground truncate">
                       {chatUser.last_message}
+                    </div>
+                  ) : (
+                    <div className="text-sm text-muted-foreground italic">
+                      Belum ada pesan
                     </div>
                   )}
                 </div>
                 {chatUser.unread_count && chatUser.unread_count > 0 && (
-                  <Badge variant="primary" className="h-5 w-5 flex items-center justify-center p-0 text-xs">
+                  <Badge variant="primary" className="h-6 min-w-[24px] flex items-center justify-center px-2 text-xs font-bold">
                     {chatUser.unread_count}
                   </Badge>
                 )}
@@ -215,50 +368,81 @@ export default function StudentMessagesPage() {
       </Card>
 
       {/* Chat Window */}
-      <Card className="flex-1 flex flex-col">
-        {selectedChat ? (
+      <Card className={`flex-1 flex flex-col ${selectedChat ? 'flex' : 'hidden md:flex'}`}>
+        {selectedChat && selectedUser ? (
           <>
             {/* Chat Header */}
             <div className="p-4 border-b border-white/10 flex items-center gap-3">
-              <div className="h-10 w-10 rounded-full bg-primary/20 flex items-center justify-center text-primary font-semibold">
-                {chatUsers.find(u => u.id === selectedChat)?.full_name.charAt(0)}
-              </div>
-              <div>
-                <div className="font-semibold">
-                  {chatUsers.find(u => u.id === selectedChat)?.full_name}
+              <Button
+                variant="ghost"
+                size="icon"
+                className="md:hidden"
+                onClick={() => setSelectedChat(null)}
+              >
+                <ArrowLeft className="h-5 w-5" />
+              </Button>
+              <div className="relative">
+                <div className="h-10 w-10 rounded-full bg-gradient-to-br from-primary/30 to-purple-500/30 flex items-center justify-center text-primary font-bold">
+                  {selectedUser.full_name.charAt(0)}
                 </div>
-                <div className="text-xs text-muted-foreground">Online</div>
+                {selectedUser.is_online && (
+                  <div className="absolute bottom-0 right-0 h-3 w-3 bg-green-500 rounded-full border-2 border-card" />
+                )}
+              </div>
+              <div className="flex-1">
+                <div className="font-semibold">{selectedUser.full_name}</div>
+                <div className="text-xs text-muted-foreground">
+                  {getLastSeenText(selectedUser.last_seen, selectedUser.is_online)}
+                </div>
               </div>
             </div>
 
             {/* Messages */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+            <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-gradient-to-b from-background/50 to-background">
               <AnimatePresence>
-                {messages.map((message) => {
+                {messages.map((message, index) => {
                   const isOwn = message.sender_id === user?.id;
+                  const showDate = index === 0 || 
+                    formatMessageTime(messages[index - 1].created_at) !== formatMessageTime(message.created_at);
+
                   return (
-                    <motion.div
-                      key={message.id}
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      className={`flex ${isOwn ? 'justify-end' : 'justify-start'}`}
-                    >
-                      <div
-                        className={`max-w-[70%] rounded-2xl px-4 py-2 ${
-                          isOwn
-                            ? 'bg-primary text-primary-foreground'
-                            : 'bg-white/5 border border-white/10'
-                        }`}
-                      >
-                        <div className="text-sm">{message.content}</div>
-                        <div className={`text-xs mt-1 ${isOwn ? 'text-primary-foreground/70' : 'text-muted-foreground'}`}>
-                          {formatDistanceToNow(new Date(message.created_at), {
-                            addSuffix: true,
-                            locale: id,
-                          })}
+                    <div key={message.id}>
+                      {showDate && (
+                        <div className="flex items-center justify-center my-4">
+                          <div className="px-3 py-1 rounded-full bg-white/5 text-xs text-muted-foreground">
+                            {formatMessageTime(message.created_at)}
+                          </div>
                         </div>
-                      </div>
-                    </motion.div>
+                      )}
+                      <motion.div
+                        initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        transition={{ duration: 0.2 }}
+                        className={`flex ${isOwn ? 'justify-end' : 'justify-start'}`}
+                      >
+                        <div
+                          className={`max-w-[75%] rounded-2xl px-4 py-2 shadow-sm ${
+                            isOwn
+                              ? 'bg-primary text-primary-foreground rounded-br-sm'
+                              : 'bg-card border border-white/10 rounded-bl-sm'
+                          }`}
+                        >
+                          <div className="text-sm whitespace-pre-wrap break-words">{message.content}</div>
+                          <div className={`flex items-center justify-end gap-1 mt-1 ${isOwn ? 'text-primary-foreground/70' : 'text-muted-foreground'}`}>
+                            <span className="text-xs">
+                              {format(new Date(message.created_at), 'HH:mm')}
+                            </span>
+                            {isOwn && (
+                              message.is_read ? (
+                                <CheckCheck className="h-4 w-4 text-blue-400" />
+                              ) : (
+                                <Check className="h-4 w-4" />
+                              )
+                            )}
+                          </div>
+                        </div>
+                      </motion.div>
+                    </div>
                   );
                 })}
               </AnimatePresence>
@@ -266,22 +450,28 @@ export default function StudentMessagesPage() {
             </div>
 
             {/* Message Input */}
-            <div className="p-4 border-t border-white/10">
-              <div className="flex gap-2">
-                <Button variant="ghost" size="icon" className="h-10 w-10">
+            <div className="p-4 border-t border-white/10 bg-card">
+              <div className="flex gap-2 items-center">
+                <Button variant="ghost" size="icon" className="h-10 w-10 flex-shrink-0">
                   <Paperclip className="h-5 w-5" />
                 </Button>
                 <Input
+                  ref={inputRef}
                   placeholder="Ketik pesan..."
                   value={newMessage}
                   onChange={(e) => setNewMessage(e.target.value)}
                   onKeyPress={handleKeyPress}
                   className="flex-1"
+                  disabled={sending}
                 />
-                <Button variant="ghost" size="icon" className="h-10 w-10">
+                <Button variant="ghost" size="icon" className="h-10 w-10 flex-shrink-0">
                   <Smile className="h-5 w-5" />
                 </Button>
-                <Button onClick={sendMessage} disabled={!newMessage.trim()}>
+                <Button 
+                  onClick={sendMessage} 
+                  disabled={!newMessage.trim() || sending}
+                  className="h-10 w-10 p-0 flex-shrink-0"
+                >
                   <Send className="h-5 w-5" />
                 </Button>
               </div>
@@ -290,8 +480,9 @@ export default function StudentMessagesPage() {
         ) : (
           <div className="flex-1 flex items-center justify-center text-muted-foreground">
             <div className="text-center">
-              <Users className="h-16 w-16 mx-auto mb-4 opacity-50" />
-              <p>Pilih chat untuk memulai percakapan</p>
+              <Users className="h-20 w-20 mx-auto mb-4 opacity-30" />
+              <p className="text-lg font-medium mb-2">Pilih chat untuk memulai</p>
+              <p className="text-sm">Kirim pesan ke teman sekelasmu</p>
             </div>
           </div>
         )}
