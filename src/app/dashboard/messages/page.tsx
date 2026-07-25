@@ -99,7 +99,7 @@ export default function StudentMessagesPage() {
             last_message: lastMsg?.content || '',
             last_message_time: lastMsg?.created_at,
             unread_count: unreadCount || 0,
-            is_online: false, // Will be updated by realtime
+            is_online: false,
             last_seen: student.updated_at,
           };
         })
@@ -169,7 +169,12 @@ export default function StudentMessagesPage() {
             (newMsg.sender_id === user.id && newMsg.receiver_id === selectedChat) ||
             (newMsg.sender_id === selectedChat && newMsg.receiver_id === user.id)
           ) {
-            setMessages(prev => [...prev, { ...newMsg, sender: { full_name: user.full_name || 'You' } }]);
+            setMessages(prev => {
+              // Check if message already exists to prevent duplicates
+              const exists = prev.some(m => m.id === newMsg.id);
+              if (exists) return prev;
+              return [...prev, { ...newMsg, sender: { full_name: user.full_name || 'You' } }];
+            });
             scrollToBottom();
             
             // Mark as read if received message
@@ -203,7 +208,7 @@ export default function StudentMessagesPage() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [selectedChat, user]);
+  }, [selectedChat, user?.id]); // Only depend on selectedChat and user.id, not entire user object
 
   const scrollToBottom = () => {
     setTimeout(() => {
@@ -273,9 +278,9 @@ export default function StudentMessagesPage() {
     const diffMinutes = Math.floor((now.getTime() - date.getTime()) / (1000 * 60));
 
     if (diffMinutes < 1) return 'Baru saja';
-    if (diffMinutes < 60) return `Terakhir dilihat ${diffMinutes} menit lalu`;
+    if (diffMinutes < 60) return `${diffMinutes}m lalu`;
     
-    return `Terakhir dilihat ${formatDistanceToNow(date, { addSuffix: true, locale: id })}`;
+    return formatDistanceToNow(date, { addSuffix: true, locale: id });
   };
 
   const filteredUsers = chatUsers.filter(u =>
@@ -283,6 +288,10 @@ export default function StudentMessagesPage() {
   );
 
   const selectedUser = chatUsers.find(u => u.id === selectedChat);
+
+  const handleBackToList = () => {
+    setSelectedChat(null);
+  };
 
   if (loading) {
     return (
@@ -296,11 +305,11 @@ export default function StudentMessagesPage() {
   }
 
   return (
-    <div className="h-[calc(100vh-8rem)] flex gap-4">
+    <div className="h-[calc(100vh-8rem)] md:h-[calc(100vh-8rem)] flex gap-0 md:gap-4 overflow-hidden">
       {/* Chat List */}
-      <Card className={`w-full md:w-96 flex flex-col ${selectedChat ? 'hidden md:flex' : 'flex'}`}>
-        <div className="p-4 border-b border-white/10">
-          <h2 className="text-xl font-bold mb-3 flex items-center gap-2">
+      <Card className={`w-full md:w-96 flex flex-col flex-shrink-0 ${selectedChat ? 'hidden md:flex' : 'flex'} rounded-none md:rounded-lg border-0 md:border border-white/10`}>
+        <div className="p-3 md:p-4 border-b border-white/10">
+          <h2 className="text-lg md:text-xl font-bold mb-2 md:mb-3 flex items-center gap-2">
             <Users className="h-5 w-5" />
             Messages
           </h2>
@@ -308,7 +317,7 @@ export default function StudentMessagesPage() {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
               placeholder="Cari teman..."
-              className="pl-10"
+              className="pl-10 h-10 md:h-11"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
             />
@@ -318,19 +327,19 @@ export default function StudentMessagesPage() {
           {filteredUsers.length === 0 ? (
             <div className="p-8 text-center text-muted-foreground">
               <Users className="h-12 w-12 mx-auto mb-3 opacity-50" />
-              <p>Tidak ada user ditemukan</p>
+              <p className="text-sm">Tidak ada user ditemukan</p>
             </div>
           ) : (
             filteredUsers.map((chatUser) => (
               <button
                 key={chatUser.id}
                 onClick={() => setSelectedChat(chatUser.id)}
-                className={`w-full p-4 flex items-center gap-3 hover:bg-white/5 transition-all ${
+                className={`w-full p-3 md:p-4 flex items-center gap-3 hover:bg-white/5 active:bg-white/10 transition-all ${
                   selectedChat === chatUser.id ? 'bg-primary/10 border-l-4 border-primary' : 'border-l-4 border-transparent'
                 }`}
               >
-                <div className="relative">
-                  <div className="h-12 w-12 rounded-full bg-gradient-to-br from-primary/30 to-purple-500/30 flex items-center justify-center text-primary font-bold text-lg">
+                <div className="relative flex-shrink-0">
+                  <div className="h-11 w-11 md:h-12 md:w-12 rounded-full bg-gradient-to-br from-primary/30 to-purple-500/30 flex items-center justify-center text-primary font-bold text-base md:text-lg">
                     {chatUser.full_name.charAt(0)}
                   </div>
                   {chatUser.is_online && (
@@ -338,8 +347,8 @@ export default function StudentMessagesPage() {
                   )}
                 </div>
                 <div className="flex-1 text-left min-w-0">
-                  <div className="flex items-center justify-between mb-1">
-                    <div className="font-semibold truncate">{chatUser.full_name}</div>
+                  <div className="flex items-center justify-between mb-0.5 md:mb-1">
+                    <div className="font-semibold text-sm md:text-base truncate">{chatUser.full_name}</div>
                     {chatUser.last_message_time && (
                       <div className="text-xs text-muted-foreground flex-shrink-0 ml-2">
                         {formatMessageTime(chatUser.last_message_time)}
@@ -347,17 +356,17 @@ export default function StudentMessagesPage() {
                     )}
                   </div>
                   {chatUser.last_message ? (
-                    <div className="text-sm text-muted-foreground truncate">
+                    <div className="text-xs md:text-sm text-muted-foreground truncate">
                       {chatUser.last_message}
                     </div>
                   ) : (
-                    <div className="text-sm text-muted-foreground italic">
+                    <div className="text-xs md:text-sm text-muted-foreground italic">
                       Belum ada pesan
                     </div>
                   )}
                 </div>
                 {chatUser.unread_count && chatUser.unread_count > 0 && (
-                  <Badge variant="primary" className="h-6 min-w-[24px] flex items-center justify-center px-2 text-xs font-bold">
+                  <Badge variant="primary" className="h-5 md:h-6 min-w-[20px] md:min-w-[24px] flex items-center justify-center px-1.5 md:px-2 text-[10px] md:text-xs font-bold flex-shrink-0">
                     {chatUser.unread_count}
                   </Badge>
                 )}
@@ -368,37 +377,37 @@ export default function StudentMessagesPage() {
       </Card>
 
       {/* Chat Window */}
-      <Card className={`flex-1 flex flex-col ${selectedChat ? 'flex' : 'hidden md:flex'}`}>
+      <Card className={`flex-1 flex flex-col min-w-0 ${selectedChat ? 'flex' : 'hidden md:flex'} rounded-none md:rounded-lg border-0 md:border border-white/10`}>
         {selectedChat && selectedUser ? (
           <>
             {/* Chat Header */}
-            <div className="p-4 border-b border-white/10 flex items-center gap-3">
+            <div className="p-3 md:p-4 border-b border-white/10 flex items-center gap-2 md:gap-3 flex-shrink-0">
               <Button
                 variant="ghost"
                 size="icon"
-                className="md:hidden"
-                onClick={() => setSelectedChat(null)}
+                className="md:hidden h-9 w-9 flex-shrink-0"
+                onClick={handleBackToList}
               >
                 <ArrowLeft className="h-5 w-5" />
               </Button>
-              <div className="relative">
-                <div className="h-10 w-10 rounded-full bg-gradient-to-br from-primary/30 to-purple-500/30 flex items-center justify-center text-primary font-bold">
+              <div className="relative flex-shrink-0">
+                <div className="h-9 w-9 md:h-10 md:w-10 rounded-full bg-gradient-to-br from-primary/30 to-purple-500/30 flex items-center justify-center text-primary font-bold text-sm md:text-base">
                   {selectedUser.full_name.charAt(0)}
                 </div>
                 {selectedUser.is_online && (
-                  <div className="absolute bottom-0 right-0 h-3 w-3 bg-green-500 rounded-full border-2 border-card" />
+                  <div className="absolute bottom-0 right-0 h-2.5 w-2.5 md:h-3 md:w-3 bg-green-500 rounded-full border-2 border-card" />
                 )}
               </div>
-              <div className="flex-1">
-                <div className="font-semibold">{selectedUser.full_name}</div>
-                <div className="text-xs text-muted-foreground">
+              <div className="flex-1 min-w-0">
+                <div className="font-semibold text-sm md:text-base truncate">{selectedUser.full_name}</div>
+                <div className="text-[10px] md:text-xs text-muted-foreground truncate">
                   {getLastSeenText(selectedUser.last_seen, selectedUser.is_online)}
                 </div>
               </div>
             </div>
 
             {/* Messages */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-gradient-to-b from-background/50 to-background">
+            <div className="flex-1 overflow-y-auto p-3 md:p-4 space-y-2 md:space-y-3 bg-gradient-to-b from-background/50 to-background">
               <AnimatePresence>
                 {messages.map((message, index) => {
                   const isOwn = message.sender_id === user?.id;
@@ -408,8 +417,8 @@ export default function StudentMessagesPage() {
                   return (
                     <div key={message.id}>
                       {showDate && (
-                        <div className="flex items-center justify-center my-4">
-                          <div className="px-3 py-1 rounded-full bg-white/5 text-xs text-muted-foreground">
+                        <div className="flex items-center justify-center my-3 md:my-4">
+                          <div className="px-3 py-1 rounded-full bg-white/5 text-[10px] md:text-xs text-muted-foreground">
                             {formatMessageTime(message.created_at)}
                           </div>
                         </div>
@@ -421,7 +430,7 @@ export default function StudentMessagesPage() {
                         className={`flex ${isOwn ? 'justify-end' : 'justify-start'}`}
                       >
                         <div
-                          className={`max-w-[75%] rounded-2xl px-4 py-2 shadow-sm ${
+                          className={`max-w-[80%] md:max-w-[75%] rounded-2xl px-3 md:px-4 py-2 shadow-sm ${
                             isOwn
                               ? 'bg-primary text-primary-foreground rounded-br-sm'
                               : 'bg-card border border-white/10 rounded-bl-sm'
@@ -429,14 +438,14 @@ export default function StudentMessagesPage() {
                         >
                           <div className="text-sm whitespace-pre-wrap break-words">{message.content}</div>
                           <div className={`flex items-center justify-end gap-1 mt-1 ${isOwn ? 'text-primary-foreground/70' : 'text-muted-foreground'}`}>
-                            <span className="text-xs">
+                            <span className="text-[10px] md:text-xs">
                               {format(new Date(message.created_at), 'HH:mm')}
                             </span>
                             {isOwn && (
                               message.is_read ? (
-                                <CheckCheck className="h-4 w-4 text-blue-400" />
+                                <CheckCheck className="h-3 w-3 md:h-4 md:w-4 text-blue-400" />
                               ) : (
-                                <Check className="h-4 w-4" />
+                                <Check className="h-3 w-3 md:h-4 md:w-4" />
                               )
                             )}
                           </div>
@@ -450,10 +459,10 @@ export default function StudentMessagesPage() {
             </div>
 
             {/* Message Input */}
-            <div className="p-4 border-t border-white/10 bg-card">
-              <div className="flex gap-2 items-center">
-                <Button variant="ghost" size="icon" className="h-10 w-10 flex-shrink-0">
-                  <Paperclip className="h-5 w-5" />
+            <div className="p-2 md:p-4 border-t border-white/10 bg-card flex-shrink-0">
+              <div className="flex gap-1.5 md:gap-2 items-center">
+                <Button variant="ghost" size="icon" className="h-9 w-9 md:h-10 md:w-10 flex-shrink-0">
+                  <Paperclip className="h-4 w-4 md:h-5 md:w-5" />
                 </Button>
                 <Input
                   ref={inputRef}
@@ -461,28 +470,25 @@ export default function StudentMessagesPage() {
                   value={newMessage}
                   onChange={(e) => setNewMessage(e.target.value)}
                   onKeyPress={handleKeyPress}
-                  className="flex-1"
+                  className="flex-1 h-9 md:h-10 text-sm md:text-base"
                   disabled={sending}
                 />
-                <Button variant="ghost" size="icon" className="h-10 w-10 flex-shrink-0">
-                  <Smile className="h-5 w-5" />
-                </Button>
                 <Button 
                   onClick={sendMessage} 
                   disabled={!newMessage.trim() || sending}
-                  className="h-10 w-10 p-0 flex-shrink-0"
+                  className="h-9 w-9 md:h-10 md:w-10 p-0 flex-shrink-0"
                 >
-                  <Send className="h-5 w-5" />
+                  <Send className="h-4 w-4 md:h-5 md:w-5" />
                 </Button>
               </div>
             </div>
           </>
         ) : (
-          <div className="flex-1 flex items-center justify-center text-muted-foreground">
+          <div className="flex-1 flex items-center justify-center text-muted-foreground p-4">
             <div className="text-center">
-              <Users className="h-20 w-20 mx-auto mb-4 opacity-30" />
-              <p className="text-lg font-medium mb-2">Pilih chat untuk memulai</p>
-              <p className="text-sm">Kirim pesan ke teman sekelasmu</p>
+              <Users className="h-16 w-16 md:h-20 md:w-20 mx-auto mb-3 md:mb-4 opacity-30" />
+              <p className="text-base md:text-lg font-medium mb-1 md:mb-2">Pilih chat untuk memulai</p>
+              <p className="text-xs md:text-sm">Kirim pesan ke teman sekelasmu</p>
             </div>
           </div>
         )}
