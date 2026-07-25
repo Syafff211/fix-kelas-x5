@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Send, Smile, Paperclip, Search, Users, Check, CheckCheck, ArrowLeft } from 'lucide-react';
 import { Card } from '@/components/ui/card';
@@ -46,66 +46,88 @@ export default function StudentMessagesPage() {
   const [chatUsers, setChatUsers] = useState<ChatUser[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
-  const [loading, setLoading] = useState(true);
+  
+  // FIX 1: Pisahkan loading awal vs refresh background
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  
   const [sending, setSending] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Fetch chat users with last message and online status
-  useEffect(() => {
-    if (!user) return;
+  const scrollToBottom = useCallback(() => {
+    setTimeout(() => {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }, 100);
+  }, []);
 
-    const fetchChatUsers = async () => {
-      setLoading(true);
-      
+  // FIX 2: Fetch chat users dioptimasi + tidak set loading saat interval
+  const fetchChatUsers = useCallback(async (isInitial = false) => {
+    if (!user?.id) return;
+
+    if (isInitial) {
+      setInitialLoading(true);
+    } else {
+      setIsRefreshing(true);
+    }
+
+    try {
       // Get all students
       const { data: students, error: studentsError } = await supabase
         .from('profiles')
-        .select('*')
+        .select('id, full_name, avatar_url, updated_at')
         .eq('role', 'student')
         .neq('id', user.id)
         .order('full_name');
 
       if (studentsError) {
         console.error('Error fetching students:', studentsError);
-        setLoading(false);
         return;
       }
 
-      // Get last messages and unread counts for each user
-      const usersWithMessages = await Promise.all(
-        (students || []).map(async (student) => {
-          // Get last message
-          const { data: lastMsg } = await supabase
-            .from('messages')
-            .select('*')
-            .or(`and(sender_id.eq.${user.id},receiver_id.eq.${student.id}),and(sender_id.eq.${student.id},receiver_id.eq.${user.id})`)
-            .order('created_at', { ascending: false })
-            .limit(1)
-            .single();
+      if (!students || students.length === 0) {
+        setChatUsers([]);
+        return;
+      }
 
-          // Get unread count
-          const { count: unreadCount } = await supabase
-            .from('messages')
-            .select('*', { count: 'exact', head: true })
-            .eq('sender_id', student.id)
-            .eq('receiver_id', user.id)
-            .eq('is_read', false);
+      // OPTIMASI: Ambil semua messages sekaligus, bukan N+1 query
+      const { data: allMessages } = await supabase
+        .from('messages')
+        .select('*')
+        .or(`sender_id.eq.${user.id},receiver_id.eq.${user.id}`)
+        .order('created_at', { ascending: false });
 
-          return {
-            id: student.id,
-            full_name: student.full_name,
-            avatar_url: student.avatar_url,
-            last_message: lastMsg?.content || '',
-            last_message_time: lastMsg?.created_at,
-            unread_count: unreadCount || 0,
-            is_online: false,
-            last_seen: student.updated_at,
-          };
-        })
-      );
+      // Grouping last message & unread count di JS
+      const lastMessageMap = new Map<string, any>();
+      const unreadCountMap = new Map<string, number>();
 
-      // Sort by last message time
+      (allMessages || []).forEach((msg) => {
+        const otherId = msg.sender_id === user.id ? msg.receiver_id : msg.sender_id;
+        
+        if (!lastMessageMap.has(otherId)) {
+          lastMessageMap.set(otherId, msg);
+        }
+
+        if (msg.receiver_id === user.id && msg.sender_id === otherId && !msg.is_read) {
+          unreadCountMap.set(otherId, (unreadCountMap.get(otherId) || 0) + 1);
+        }
+      });
+
+      const usersWithMessages: ChatUser[] = (students || []).map((student) => {
+        const lastMsg = lastMessageMap.get(student.id);
+        return {
+          id: student.id,
+          full_name: student.full_name,
+          avatar_url: student.avatar_url,
+          last_message: lastMsg?.content || '',
+          last_message_time: lastMsg?.created_at,
+          unread_count: unreadCountMap.get(student.id) || 0,
+          is_online: false,
+          last_seen: student.updated_at,
+        };
+      });
+
+      // Sort by last message time (yang ada chat terbaru di atas)
       usersWithMessages.sort((a, b) => {
         if (!a.last_message_time) return 1;
         if (!b.last_message_time) return -1;
@@ -113,19 +135,49 @@ export default function StudentMessagesPage() {
       });
 
       setChatUsers(usersWithMessages);
-      setLoading(false);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      if (isInitial) {
+        setInitialLoading(false);
+      } else {
+        setIsRefreshing(false);
+        // Matikan initialLoading juga kalau interval duluan yang selesai
+        setInitialLoading(false);
+      }
+    }
+  }, [user?.id]);
+
+  // Fetch chat users dengan dependency STABIL: user?.id
+  useEffect(() => {
+    if (!user?.id) return;
+
+    fetchChatUsers(true);
+
+    // FIX 3: Interval jangan pakai setLoading(true) yang bikin UI hilang
+    // Kalau mau realtime, lebih baik pakai supabase realtime, tapi interval silent tetap ok
+    const interval = setInterval(() => fetchChatUsers(false), 15000);
+    
+    // Realtime untuk update list chat tanpa loading
+    const listChannel = supabase
+      .channel(`user_list_${user.id}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `receiver_id=eq.${user.id}` },
+        () => fetchChatUsers(false)
+      )
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `sender_id=eq.${user.id}` },
+        () => fetchChatUsers(false)
+      )
+      .subscribe();
+
+    return () => {
+      clearInterval(interval);
+      supabase.removeChannel(listChannel);
     };
-
-    fetchChatUsers();
-
-    // Refresh every 10 seconds
-    const interval = setInterval(fetchChatUsers, 10000);
-    return () => clearInterval(interval);
-  }, [user]);
+  }, [user?.id, fetchChatUsers]);
 
   // Fetch messages when chat is selected
   useEffect(() => {
-    if (!selectedChat || !user) return;
+    if (!selectedChat || !user?.id) return;
 
     const fetchMessages = async () => {
       const { data, error } = await supabase
@@ -138,7 +190,7 @@ export default function StudentMessagesPage() {
         .order('created_at', { ascending: true });
 
       if (!error && data) {
-        setMessages(data);
+        setMessages(data as Message[]);
         scrollToBottom();
         
         // Mark messages as read
@@ -148,12 +200,15 @@ export default function StudentMessagesPage() {
           .eq('sender_id', selectedChat)
           .eq('receiver_id', user.id)
           .eq('is_read', false);
+
+        // Reset unread count locally tanpa refetch full
+        setChatUsers(prev => prev.map(u => u.id === selectedChat ? { ...u, unread_count: 0 } : u));
       }
     };
 
     fetchMessages();
 
-    // Subscribe to real-time messages
+    // Subscribe to real-time messages - FIX 4: Penamaan channel yang benar
     const channel = supabase
       .channel(`chat_${user.id}_${selectedChat}`)
       .on(
@@ -170,20 +225,36 @@ export default function StudentMessagesPage() {
             (newMsg.sender_id === selectedChat && newMsg.receiver_id === user.id)
           ) {
             setMessages(prev => {
-              // Check if message already exists to prevent duplicates
               const exists = prev.some(m => m.id === newMsg.id);
               if (exists) return prev;
-              return [...prev, { ...newMsg, sender: { full_name: user.full_name || 'You' } }];
+              return [...prev, { ...newMsg, sender: { full_name: selectedChat === newMsg.sender_id ? (chatUsers.find(u=>u.id===selectedChat)?.full_name || '') : (user.full_name || 'You') } }];
             });
             scrollToBottom();
-            
-            // Mark as read if received message
+
+            // Mark as read if received
             if (newMsg.sender_id === selectedChat) {
-              supabase
-                .from('messages')
-                .update({ is_read: true })
-                .eq('id', newMsg.id);
+              supabase.from('messages').update({ is_read: true }).eq('id', newMsg.id).then();
             }
+
+            // Update last message di list secara lokal biar tidak perlu fetch
+            setChatUsers(prev => {
+              const updated = prev.map(u => {
+                if (u.id === selectedChat || u.id === newMsg.sender_id || u.id === newMsg.receiver_id) {
+                   // cari otherId
+                   const otherId = newMsg.sender_id === user.id ? newMsg.receiver_id : newMsg.sender_id;
+                   if(u.id === otherId) {
+                     return { ...u, last_message: newMsg.content, last_message_time: newMsg.created_at };
+                   }
+                }
+                return u;
+              });
+              // sort ulang
+              return [...updated].sort((a,b) => {
+                if (!a.last_message_time) return 1;
+                if (!b.last_message_time) return -1;
+                return new Date(b.last_message_time).getTime() - new Date(a.last_message_time).getTime();
+              });
+            });
           }
         }
       )
@@ -208,38 +279,61 @@ export default function StudentMessagesPage() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [selectedChat, user?.id]); // Only depend on selectedChat and user.id, not entire user object
-
-  const scrollToBottom = () => {
-    setTimeout(() => {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, 100);
-  };
+  }, [selectedChat, user?.id, scrollToBottom]); // Jangan pakai chatUsers sebagai dependency penuh
 
   const sendMessage = async () => {
-    if (!newMessage.trim() || !selectedChat || !user || sending) return;
-
+    if (!newMessage.trim() || !selectedChat || !user?.id || sending) return;
+    
     setSending(true);
     const messageContent = newMessage.trim();
     setNewMessage('');
 
+    // FIX 5: Optimistic UI - langsung tampil sebelum ke server
+    const tempId = `temp-${Date.now()}`;
+    const optimisticMsg: Message = {
+      id: tempId,
+      sender_id: user.id,
+      receiver_id: selectedChat,
+      content: messageContent,
+      created_at: new Date().toISOString(),
+      is_read: false,
+      sender: { full_name: user.full_name || 'You' }
+    };
+    
+    setMessages(prev => [...prev, optimisticMsg]);
+    scrollToBottom();
+
     try {
-      const { error } = await supabase.from('messages').insert([{
+      const { data, error } = await supabase.from('messages').insert([{
         sender_id: user.id,
         receiver_id: selectedChat,
         content: messageContent,
         is_read: false,
-      }]);
+      }]).select().single();
 
-      if (error) {
-        console.error('Error sending message:', error);
-        toast.error('Gagal mengirim pesan: ' + error.message);
-        setNewMessage(messageContent);
+      if (error) throw error;
+
+      // Ganti temp msg dengan data asli
+      if (data) {
+        setMessages(prev => prev.map(m => m.id === tempId ? { ...data, sender: { full_name: user.full_name || 'You' } } as Message : m));
       }
+
+      // Update last message di sidebar secara lokal
+      setChatUsers(prev => {
+        const updated = prev.map(u => u.id === selectedChat ? { ...u, last_message: messageContent, last_message_time: new Date().toISOString() } : u);
+        return [...updated].sort((a,b) => {
+          if (!a.last_message_time) return 1;
+          if (!b.last_message_time) return -1;
+          return new Date(b.last_message_time).getTime() - new Date(a.last_message_time).getTime();
+        });
+      });
+
     } catch (error: any) {
       console.error('Error sending message:', error);
-      toast.error('Gagal mengirim pesan');
+      toast.error('Gagal mengirim pesan: ' + error.message);
       setNewMessage(messageContent);
+      // Hapus optimistic message kalau gagal
+      setMessages(prev => prev.filter(m => m.id !== tempId));
     } finally {
       setSending(false);
       inputRef.current?.focus();
@@ -257,29 +351,19 @@ export default function StudentMessagesPage() {
     const date = new Date(dateString);
     const now = new Date();
     const diffDays = Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24));
-
-    if (diffDays === 0) {
-      return format(date, 'HH:mm');
-    } else if (diffDays === 1) {
-      return 'Kemarin';
-    } else if (diffDays < 7) {
-      return format(date, 'EEEE', { locale: id });
-    } else {
-      return format(date, 'dd/MM/yyyy');
-    }
+    if (diffDays === 0) return format(date, 'HH:mm');
+    if (diffDays === 1) return 'Kemarin';
+    if (diffDays < 7) return format(date, 'EEEE', { locale: id });
+    return format(date, 'dd/MM/yyyy');
   };
 
   const getLastSeenText = (lastSeen?: string, isOnline?: boolean) => {
     if (isOnline) return 'Online';
     if (!lastSeen) return 'Terakhir dilihat baru-baru ini';
-    
     const date = new Date(lastSeen);
-    const now = new Date();
-    const diffMinutes = Math.floor((now.getTime() - date.getTime()) / (1000 * 60));
-
+    const diffMinutes = Math.floor((new Date().getTime() - date.getTime()) / (1000 * 60));
     if (diffMinutes < 1) return 'Baru saja';
     if (diffMinutes < 60) return `${diffMinutes}m lalu`;
-    
     return formatDistanceToNow(date, { addSuffix: true, locale: id });
   };
 
@@ -289,15 +373,11 @@ export default function StudentMessagesPage() {
 
   const selectedUser = chatUsers.find(u => u.id === selectedChat);
 
-  const handleBackToList = () => {
-    setSelectedChat(null);
-  };
-
-  if (loading) {
+  if (initialLoading) {
     return (
       <div className="flex items-center justify-center h-full">
         <div className="text-center">
-          <div className="spinner mb-4" />
+          <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full mx-auto mb-4" />
           <p className="text-muted-foreground">Memuat pesan...</p>
         </div>
       </div>
@@ -305,13 +385,14 @@ export default function StudentMessagesPage() {
   }
 
   return (
-    <div className="h-[calc(100vh-8rem)] md:h-[calc(100vh-8rem)] flex gap-0 md:gap-4 overflow-hidden">
+    <div className="h-[calc(100vh-8rem)] flex gap-0 md:gap-4 overflow-hidden">
       {/* Chat List */}
       <Card className={`w-full md:w-96 flex flex-col flex-shrink-0 ${selectedChat ? 'hidden md:flex' : 'flex'} rounded-none md:rounded-lg border-0 md:border border-white/10`}>
         <div className="p-3 md:p-4 border-b border-white/10">
           <h2 className="text-lg md:text-xl font-bold mb-2 md:mb-3 flex items-center gap-2">
             <Users className="h-5 w-5" />
             Messages
+            {isRefreshing && <span className="ml-2 h-3 w-3 animate-spin rounded-full border-2 border-primary border-t-transparent inline-block" />}
           </h2>
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -366,7 +447,7 @@ export default function StudentMessagesPage() {
                   )}
                 </div>
                 {chatUser.unread_count && chatUser.unread_count > 0 && (
-                  <Badge variant="primary" className="h-5 md:h-6 min-w-[20px] md:min-w-[24px] flex items-center justify-center px-1.5 md:px-2 text-[10px] md:text-xs font-bold flex-shrink-0">
+                  <Badge variant="default" className="h-5 md:h-6 min-w-[20px] md:min-w-[24px] flex items-center justify-center px-1.5 md:px-2 text-[10px] md:text-xs font-bold flex-shrink-0">
                     {chatUser.unread_count}
                   </Badge>
                 )}
@@ -380,14 +461,8 @@ export default function StudentMessagesPage() {
       <Card className={`flex-1 flex flex-col min-w-0 ${selectedChat ? 'flex' : 'hidden md:flex'} rounded-none md:rounded-lg border-0 md:border border-white/10`}>
         {selectedChat && selectedUser ? (
           <>
-            {/* Chat Header */}
             <div className="p-3 md:p-4 border-b border-white/10 flex items-center gap-2 md:gap-3 flex-shrink-0">
-              <Button
-                variant="ghost"
-                size="icon"
-                className="md:hidden h-9 w-9 flex-shrink-0"
-                onClick={handleBackToList}
-              >
+              <Button variant="ghost" size="icon" className="md:hidden h-9 w-9 flex-shrink-0" onClick={() => setSelectedChat(null)}>
                 <ArrowLeft className="h-5 w-5" />
               </Button>
               <div className="relative flex-shrink-0">
@@ -406,14 +481,11 @@ export default function StudentMessagesPage() {
               </div>
             </div>
 
-            {/* Messages */}
             <div className="flex-1 overflow-y-auto p-3 md:p-4 space-y-2 md:space-y-3 bg-gradient-to-b from-background/50 to-background">
               <AnimatePresence>
                 {messages.map((message, index) => {
                   const isOwn = message.sender_id === user?.id;
-                  const showDate = index === 0 || 
-                    formatMessageTime(messages[index - 1].created_at) !== formatMessageTime(message.created_at);
-
+                  const showDate = index === 0 || formatMessageTime(messages[index - 1].created_at) !== formatMessageTime(message.created_at);
                   return (
                     <div key={message.id}>
                       {showDate && (
@@ -429,25 +501,11 @@ export default function StudentMessagesPage() {
                         transition={{ duration: 0.2 }}
                         className={`flex ${isOwn ? 'justify-end' : 'justify-start'}`}
                       >
-                        <div
-                          className={`max-w-[80%] md:max-w-[75%] rounded-2xl px-3 md:px-4 py-2 shadow-sm ${
-                            isOwn
-                              ? 'bg-primary text-primary-foreground rounded-br-sm'
-                              : 'bg-card border border-white/10 rounded-bl-sm'
-                          }`}
-                        >
+                        <div className={`max-w-[80%] md:max-w-[75%] rounded-2xl px-3 md:px-4 py-2 shadow-sm ${isOwn ? 'bg-primary text-primary-foreground rounded-br-sm' : 'bg-card border border-white/10 rounded-bl-sm'}`}>
                           <div className="text-sm whitespace-pre-wrap break-words">{message.content}</div>
                           <div className={`flex items-center justify-end gap-1 mt-1 ${isOwn ? 'text-primary-foreground/70' : 'text-muted-foreground'}`}>
-                            <span className="text-[10px] md:text-xs">
-                              {format(new Date(message.created_at), 'HH:mm')}
-                            </span>
-                            {isOwn && (
-                              message.is_read ? (
-                                <CheckCheck className="h-3 w-3 md:h-4 md:w-4 text-blue-400" />
-                              ) : (
-                                <Check className="h-3 w-3 md:h-4 md:w-4" />
-                              )
-                            )}
+                            <span className="text-[10px] md:text-xs">{format(new Date(message.created_at), 'HH:mm')}</span>
+                            {isOwn && (message.is_read ? <CheckCheck className="h-3 w-3 md:h-4 md:w-4 text-blue-400" /> : <Check className="h-3 w-3 md:h-4 md:w-4" />)}
                           </div>
                         </div>
                       </motion.div>
@@ -458,7 +516,6 @@ export default function StudentMessagesPage() {
               <div ref={messagesEndRef} />
             </div>
 
-            {/* Message Input */}
             <div className="p-2 md:p-4 border-t border-white/10 bg-card flex-shrink-0">
               <div className="flex gap-1.5 md:gap-2 items-center">
                 <Button variant="ghost" size="icon" className="h-9 w-9 md:h-10 md:w-10 flex-shrink-0">
@@ -469,15 +526,11 @@ export default function StudentMessagesPage() {
                   placeholder="Ketik pesan..."
                   value={newMessage}
                   onChange={(e) => setNewMessage(e.target.value)}
-                  onKeyPress={handleKeyPress}
+                  onKeyDown={handleKeyPress}
                   className="flex-1 h-9 md:h-10 text-sm md:text-base"
                   disabled={sending}
                 />
-                <Button 
-                  onClick={sendMessage} 
-                  disabled={!newMessage.trim() || sending}
-                  className="h-9 w-9 md:h-10 md:w-10 p-0 flex-shrink-0"
-                >
+                <Button onClick={sendMessage} disabled={!newMessage.trim() || sending} className="h-9 w-9 md:h-10 md:w-10 p-0 flex-shrink-0">
                   <Send className="h-4 w-4 md:h-5 md:w-5" />
                 </Button>
               </div>
