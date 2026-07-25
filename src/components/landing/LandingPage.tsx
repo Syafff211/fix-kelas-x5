@@ -13,6 +13,7 @@ import { LandingNavbar } from './LandingNavbar';
 import { LandingFooter } from './LandingFooter';
 import { ParticlesBackground } from '../ui/ParticlesBackground';
 import { MouseGlow } from '../ui/MouseGlow';
+import { ChatBot } from '../ChatBot';
 
 export function LandingPage() {
   return (
@@ -40,6 +41,9 @@ export function LandingPage() {
         <ContactSection />
         <LandingFooter />
       </div>
+
+      {/* ChatBot */}
+      <ChatBot />
     </div>
   );
 }
