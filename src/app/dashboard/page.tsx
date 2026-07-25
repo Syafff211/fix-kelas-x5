@@ -1,5 +1,6 @@
 'use client';
 
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import {
   Calendar,
@@ -16,43 +17,150 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useAuthStore } from '@/store';
+import { createClient } from '@/lib/supabase/client';
 import Link from 'next/link';
+import { format } from 'date-fns';
+import { id } from 'date-fns/locale';
 
-const stats = [
-  { icon: CheckCircle, label: 'Kehadiran', value: '95%', color: 'text-success', bg: 'bg-success/20', href: '/dashboard/attendance' },
-  { icon: BookOpen, label: 'Tugas Aktif', value: '3', color: 'text-primary', bg: 'bg-primary/20', href: '/dashboard/assignments' },
-  { icon: TrendingUp, label: 'Rata-rata Nilai', value: '87.5', color: 'text-info', bg: 'bg-info/20', href: '/dashboard/grades' },
-  { icon: Award, label: 'Achievements', value: '5', color: 'text-warning', bg: 'bg-warning/20', href: '/dashboard/achievements' },
-];
-
-const todaySchedule = [
-  { time: '07:30', subject: 'Matematika', room: 'R.101', status: 'ongoing' },
-  { time: '09:00', subject: 'Bahasa Indonesia', room: 'R.101', status: 'upcoming' },
-  { time: '10:30', subject: 'Fisika', room: 'Lab Fisika', status: 'upcoming' },
-  { time: '13:00', subject: 'Bahasa Inggris', room: 'R.101', status: 'upcoming' },
-];
-
-const recentAnnouncements = [
-  { title: 'Ujian Tengah Semester', date: '15-20 Oktober 2024', pinned: true, href: '/dashboard/announcements' },
-  { title: 'Class Meeting', date: '25 Oktober 2024', pinned: false, href: '/dashboard/announcements' },
-  { title: 'Study Tour', date: 'November 2024', pinned: false, href: '/dashboard/announcements' },
-];
-
-const upcomingAssignments = [
-  { title: 'Essay Bahasa Indonesia', due: '3 hari lagi', subject: 'B. Indonesia', href: '/dashboard/assignments' },
-  { title: 'Soal Matematika Bab 5', due: '5 hari lagi', subject: 'Matematika', href: '/dashboard/assignments' },
-  { title: 'Laporan Praktikum Fisika', due: '1 minggu lagi', subject: 'Fisika', href: '/dashboard/assignments' },
-];
-
-const quickActions = [
-  { icon: MessageSquare, label: 'Chat Teman', href: '/dashboard/messages', color: 'text-primary', bg: 'bg-primary/20' },
-  { icon: Users, label: 'Lihat Teman', href: '/dashboard/friends', color: 'text-info', bg: 'bg-info/20' },
-  { icon: Calendar, label: 'Jadwal', href: '/dashboard/schedule', color: 'text-success', bg: 'bg-success/20' },
-  { icon: Bell, label: 'Notifikasi', href: '/dashboard/notifications', color: 'text-warning', bg: 'bg-warning/20' },
-];
+const supabase = createClient();
 
 export default function StudentDashboardPage() {
   const { user } = useAuthStore();
+  const [loading, setLoading] = useState(true);
+  const [stats, setStats] = useState({
+    attendance: 0,
+    assignments: 0,
+    averageGrade: 0,
+    achievements: 0,
+  });
+  const [todaySchedule, setTodaySchedule] = useState<any[]>([]);
+  const [recentAnnouncements, setRecentAnnouncements] = useState<any[]>([]);
+  const [upcomingAssignments, setUpcomingAssignments] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (user) {
+      fetchDashboardData();
+    }
+  }, [user]);
+
+  const fetchDashboardData = async () => {
+    try {
+      // Fetch attendance stats
+      const { data: attendanceData } = await supabase
+        .from('attendance')
+        .select('status')
+        .eq('student_id', user?.id);
+
+      const totalAttendance = attendanceData?.length || 0;
+      const presentCount = attendanceData?.filter(a => a.status === 'present').length || 0;
+      const attendancePercentage = totalAttendance > 0 ? Math.round((presentCount / totalAttendance) * 100) : 0;
+
+      // Fetch assignments
+      const { data: assignmentsData } = await supabase
+        .from('assignments')
+        .select(`
+          *,
+          submissions:assignment_submissions(id, submitted_at)
+        `)
+        .order('due_date', { ascending: true });
+
+      const pendingAssignments = assignmentsData?.filter(a => !a.submissions || a.submissions.length === 0) || [];
+
+      // Fetch grades
+      const { data: gradesData } = await supabase
+        .from('grades')
+        .select('score, max_score')
+        .eq('student_id', user?.id);
+
+      const averageGrade = gradesData && gradesData.length > 0
+        ? Math.round(gradesData.reduce((sum, g) => sum + (g.score / g.max_score * 100), 0) / gradesData.length)
+        : 0;
+
+      // Fetch announcements
+      const { data: announcementsData } = await supabase
+        .from('announcements')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(3);
+
+      // Fetch today's schedule
+      const today = new Date();
+      const dayOfWeek = today.getDay();
+      const { data: scheduleData } = await supabase
+        .from('calendar_events')
+        .select('*')
+        .eq('day_of_week', dayOfWeek)
+        .order('start_time', { ascending: true });
+
+      setStats({
+        attendance: attendancePercentage,
+        assignments: pendingAssignments.length,
+        averageGrade,
+        achievements: 0, // Can be calculated from grades or separate table
+      });
+
+      setTodaySchedule(scheduleData || []);
+      setRecentAnnouncements(announcementsData || []);
+      setUpcomingAssignments(pendingAssignments.slice(0, 3));
+    } catch (error) {
+      console.error('Error fetching dashboard data:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const statsCards = [
+    { 
+      icon: CheckCircle, 
+      label: 'Kehadiran', 
+      value: `${stats.attendance}%`, 
+      color: 'text-success', 
+      bg: 'bg-success/20', 
+      href: '/dashboard/attendance' 
+    },
+    { 
+      icon: BookOpen, 
+      label: 'Tugas Aktif', 
+      value: stats.assignments.toString(), 
+      color: 'text-primary', 
+      bg: 'bg-primary/20', 
+      href: '/dashboard/assignments' 
+    },
+    { 
+      icon: TrendingUp, 
+      label: 'Rata-rata Nilai', 
+      value: stats.averageGrade.toString(), 
+      color: 'text-info', 
+      bg: 'bg-info/20', 
+      href: '/dashboard/grades' 
+    },
+    { 
+      icon: Award, 
+      label: 'Achievements', 
+      value: stats.achievements.toString(), 
+      color: 'text-warning', 
+      bg: 'bg-warning/20', 
+      href: '/dashboard/achievements' 
+    },
+  ];
+
+  const quickActions = [
+    { icon: MessageSquare, label: 'Chat Teman', href: '/dashboard/messages', color: 'text-primary', bg: 'bg-primary/20' },
+    { icon: Users, label: 'Lihat Teman', href: '/dashboard/friends', color: 'text-info', bg: 'bg-info/20' },
+    { icon: Calendar, label: 'Jadwal', href: '/dashboard/schedule', color: 'text-success', bg: 'bg-success/20' },
+    { icon: Bell, label: 'Notifikasi', href: '/dashboard/notifications', color: 'text-warning', bg: 'bg-warning/20' },
+  ];
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <div className="text-center">
+          <div className="spinner mb-4" />
+          <p className="text-muted-foreground">Memuat dashboard...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -78,7 +186,7 @@ export default function StudentDashboardPage() {
 
       {/* Stats Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {stats.map((stat, i) => (
+        {statsCards.map((stat, i) => (
           <motion.div
             key={i}
             initial={{ opacity: 0, y: 20 }}
@@ -156,28 +264,32 @@ export default function StudentDashboardPage() {
               </div>
             </CardHeader>
             <CardContent>
-              <div className="space-y-3">
-                {todaySchedule.map((item, i) => (
-                  <div
-                    key={i}
-                    className="flex items-center gap-4 p-3 rounded-xl bg-white/5 hover:bg-white/8 transition-colors"
-                  >
-                    <div className="text-center min-w-[60px]">
-                      <p className="text-sm font-semibold">{item.time}</p>
-                    </div>
-                    <div className="h-10 w-px bg-white/10" />
-                    <div className="flex-1">
-                      <p className="font-medium">{item.subject}</p>
-                      <p className="text-sm text-muted-foreground">{item.room}</p>
-                    </div>
-                    <Badge
-                      variant={item.status === 'ongoing' ? 'success' : 'outline'}
+              {todaySchedule.length === 0 ? (
+                <div className="text-center py-8">
+                  <Calendar className="h-12 w-12 text-muted-foreground mx-auto mb-4 opacity-50" />
+                  <p className="text-muted-foreground">Belum ada jadwal hari ini</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {todaySchedule.map((item, i) => (
+                    <div
+                      key={i}
+                      className="flex items-center gap-4 p-3 rounded-xl bg-white/5 hover:bg-white/8 transition-colors"
                     >
-                      {item.status === 'ongoing' ? 'Berlangsung' : 'Akan Datang'}
-                    </Badge>
-                  </div>
-                ))}
-              </div>
+                      <div className="text-center min-w-[60px]">
+                        <p className="text-sm font-semibold">{item.start_time}</p>
+                      </div>
+                      <div className="h-10 w-px bg-white/10" />
+                      <div className="flex-1">
+                        <p className="font-medium">{item.title}</p>
+                        {item.description && (
+                          <p className="text-sm text-muted-foreground">{item.description}</p>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
         </motion.div>
@@ -203,23 +315,32 @@ export default function StudentDashboardPage() {
               </div>
             </CardHeader>
             <CardContent>
-              <div className="space-y-3">
-                {recentAnnouncements.map((item, i) => (
-                  <Link key={i} href={item.href}>
-                    <div className="p-3 rounded-xl bg-white/5 hover:bg-white/8 transition-colors cursor-pointer">
-                      <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <p className="font-medium text-sm">{item.title}</p>
-                          <p className="text-xs text-muted-foreground mt-1">{item.date}</p>
+              {recentAnnouncements.length === 0 ? (
+                <div className="text-center py-8">
+                  <Bell className="h-12 w-12 text-muted-foreground mx-auto mb-4 opacity-50" />
+                  <p className="text-muted-foreground">Belum ada pengumuman</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {recentAnnouncements.map((item, i) => (
+                    <Link key={i} href="/dashboard/announcements">
+                      <div className="p-3 rounded-xl bg-white/5 hover:bg-white/8 transition-colors cursor-pointer">
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <p className="font-medium text-sm">{item.title}</p>
+                            <p className="text-xs text-muted-foreground mt-1">
+                              {format(new Date(item.created_at), 'dd MMM yyyy', { locale: id })}
+                            </p>
+                          </div>
+                          {item.is_pinned && (
+                            <Badge variant="warning" className="text-[10px]">Pinned</Badge>
+                          )}
                         </div>
-                        {item.pinned && (
-                          <Badge variant="warning" className="text-[10px]">Pinned</Badge>
-                        )}
                       </div>
-                    </div>
-                  </Link>
-                ))}
-              </div>
+                    </Link>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
         </motion.div>
@@ -246,19 +367,30 @@ export default function StudentDashboardPage() {
             </div>
           </CardHeader>
           <CardContent>
-            <div className="grid md:grid-cols-3 gap-4">
-              {upcomingAssignments.map((item, i) => (
-                <Link key={i} href={item.href}>
-                  <div className="p-4 rounded-xl bg-white/5 hover:bg-white/8 transition-colors cursor-pointer border border-white/5 hover:border-primary/30">
-                    <Badge variant="outline" className="mb-2">{item.subject}</Badge>
-                    <h3 className="font-medium mb-2">{item.title}</h3>
-                    <p className="text-sm text-muted-foreground">
-                      Deadline: <span className="text-warning">{item.due}</span>
-                    </p>
-                  </div>
-                </Link>
-              ))}
-            </div>
+            {upcomingAssignments.length === 0 ? (
+              <div className="text-center py-8">
+                <BookOpen className="h-12 w-12 text-muted-foreground mx-auto mb-4 opacity-50" />
+                <p className="text-muted-foreground">Belum ada tugas mendatang</p>
+              </div>
+            ) : (
+              <div className="grid md:grid-cols-3 gap-4">
+                {upcomingAssignments.map((item, i) => (
+                  <Link key={i} href="/dashboard/assignments">
+                    <div className="p-4 rounded-xl bg-white/5 hover:bg-white/8 transition-colors cursor-pointer border border-white/5 hover:border-primary/30">
+                      {item.subject && (
+                        <Badge variant="outline" className="mb-2">{item.subject}</Badge>
+                      )}
+                      <h3 className="font-medium mb-2">{item.title}</h3>
+                      <p className="text-sm text-muted-foreground">
+                        Deadline: <span className="text-warning">
+                          {format(new Date(item.due_date), 'dd MMM yyyy', { locale: id })}
+                        </span>
+                      </p>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            )}
           </CardContent>
         </Card>
       </motion.div>
