@@ -1,0 +1,314 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model Profile {
+  id          String   @id @default(uuid())
+  user_id     String   @unique
+  full_name   String
+  nisn        String?  @unique
+  phone       String?
+  email       String   @unique
+  address     String?
+  parent_name String?
+  avatar_url  String?
+  role        Role     @default(student)
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  attendance          Attendance[]
+  assignmentSubmissions AssignmentSubmission[]
+  grades              Grade[]
+  sentMessages        Message[]          @relation("SentMessages")
+  receivedMessages    Message[]          @relation("ReceivedMessages")
+  notifications       Notification[]
+  activityLogs        ActivityLog[]
+  announcements       Announcement[]
+  materials           Material[]
+
+  @@map("profiles")
+}
+
+enum Role {
+  admin
+  student
+}
+
+model Attendance {
+  id         String           @id @default(uuid())
+  student_id String
+  date       DateTime         @db.Date
+  status     AttendanceStatus
+  note       String?
+  created_at DateTime         @default(now())
+  updated_at DateTime         @updatedAt
+
+  student Profile           @relation(fields: [student_id], references: [id], onDelete: Cascade)
+  files   AttendanceFile[]
+
+  @@unique([student_id, date])
+  @@map("attendance")
+}
+
+enum AttendanceStatus {
+  present
+  permission
+  sick
+  absent
+}
+
+model AttendanceFile {
+  id            String   @id @default(uuid())
+  attendance_id String
+  file_url      String
+  file_name     String
+  file_size     Int
+  file_type     String
+  created_at    DateTime @default(now())
+
+  attendance Attendance @relation(fields: [attendance_id], references: [id], onDelete: Cascade)
+
+  @@map("attendance_files")
+}
+
+model Assignment {
+  id          String   @id @default(uuid())
+  title       String
+  description String
+  subject     String?
+  due_date    DateTime
+  file_url    String?
+  file_name   String?
+  created_by  String
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  submissions AssignmentSubmission[]
+
+  @@map("assignments")
+}
+
+model AssignmentSubmission {
+  id            String    @id @default(uuid())
+  assignment_id String
+  student_id    String
+  file_url      String?
+  file_name     String?
+  content       String?
+  submitted_at  DateTime  @default(now())
+  score         Int?
+  feedback      String?
+
+  assignment Assignment @relation(fields: [assignment_id], references: [id], onDelete: Cascade)
+  student    Profile    @relation(fields: [student_id], references: [id], onDelete: Cascade)
+
+  @@unique([assignment_id, student_id])
+  @@map("assignment_submissions")
+}
+
+model Grade {
+  id            String    @id @default(uuid())
+  student_id    String
+  subject       String
+  type          GradeType
+  score         Int
+  semester      Int
+  academic_year String
+  note          String?
+  created_at    DateTime  @default(now())
+
+  student Profile @relation(fields: [student_id], references: [id], onDelete: Cascade)
+
+  @@map("grades")
+}
+
+enum GradeType {
+  daily
+  assignment
+  mid_semester
+  final_semester
+}
+
+model Material {
+  id           String   @id @default(uuid())
+  title        String
+  description  String?
+  category     String
+  file_url     String?
+  file_name    String?
+  file_type    String?
+  file_size    Int?
+  external_url String?
+  created_by   String
+  created_at   DateTime @default(now())
+  updated_at   DateTime @updatedAt
+
+  creator Profile @relation(fields: [created_by], references: [id], onDelete: Cascade)
+
+  @@map("materials")
+}
+
+model Announcement {
+  id           String    @id @default(uuid())
+  title        String
+  content      String
+  image_url    String?
+  file_url     String?
+  file_name    String?
+  is_pinned    Boolean   @default(false)
+  scheduled_at DateTime?
+  created_by   String
+  created_at   DateTime  @default(now())
+  updated_at   DateTime  @updatedAt
+
+  creator Profile @relation(fields: [created_by], references: [id], onDelete: Cascade)
+
+  @@map("announcements")
+}
+
+model GalleryAlbum {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  cover_url   String?
+  created_at  DateTime @default(now())
+
+  items GalleryItem[]
+
+  @@map("gallery_albums")
+}
+
+model GalleryItem {
+  id          String   @id @default(uuid())
+  album_id    String?
+  title       String
+  description String?
+  media_url   String
+  media_type  MediaType
+  is_featured Boolean  @default(false)
+  created_at  DateTime @default(now())
+
+  album GalleryAlbum? @relation(fields: [album_id], references: [id], onDelete: SetNull)
+
+  @@map("gallery")
+}
+
+enum MediaType {
+  image
+  video
+}
+
+model CalendarEvent {
+  id          String        @id @default(uuid())
+  title       String
+  description String?
+  date        DateTime      @db.Date
+  end_date    DateTime?     @db.Date
+  time        String?
+  type        EventType
+  color       String?
+  created_at  DateTime      @default(now())
+
+  @@map("calendar_events")
+}
+
+enum EventType {
+  holiday
+  exam
+  event
+  meeting
+  other
+}
+
+model Message {
+  id          String   @id @default(uuid())
+  sender_id   String
+  receiver_id String
+  content     String
+  is_read     Boolean  @default(false)
+  created_at  DateTime @default(now())
+
+  sender   Profile @relation("SentMessages", fields: [sender_id], references: [id], onDelete: Cascade)
+  receiver Profile @relation("ReceivedMessages", fields: [receiver_id], references: [id], onDelete: Cascade)
+
+  @@map("messages")
+}
+
+model Notification {
+  id       String           @id @default(uuid())
+  user_id  String?
+  title    String
+  message  String
+  type     NotificationType @default(info)
+  link     String?
+  is_read  Boolean          @default(false)
+  created_at DateTime       @default(now())
+
+  user Profile? @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@map("notifications")
+}
+
+enum NotificationType {
+  info
+  success
+  warning
+  error
+}
+
+model LandingContent {
+  id         String   @id @default(uuid())
+  section    String
+  key        String
+  value      String
+  value_type String   @default("text")
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@unique([section, key])
+  @@map("landing_content")
+}
+
+model WebsiteSettings {
+  id         String   @id @default(uuid())
+  key        String   @unique
+  value      String
+  category   String
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@map("website_settings")
+}
+
+model ActivityLog {
+  id         String   @id @default(uuid())
+  user_id    String
+  action     String
+  details    String?
+  ip_address String?
+  user_agent String?
+  created_at DateTime @default(now())
+
+  user Profile @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@map("activity_logs")
+}
+
+model StorageFile {
+  id         String   @id @default(uuid())
+  bucket     String
+  file_name  String
+  file_url   String
+  file_size  Int
+  file_type  String
+  uploaded_by String?
+  created_at DateTime @default(now())
+
+  @@map("storage_files")
+}
