@@ -43,7 +43,7 @@ const menuItems = [
   { icon: Bell, label: 'Pengumuman', href: '/admin/announcements', badge: '3' },
   { icon: Calendar, label: 'Kalender', href: '/admin/calendar', badge: null },
   { icon: Crown, label: 'Organisasi', href: '/admin/organization', badge: null },
-  { icon: MessageSquare, label: 'Messages', href: '/messages', badge: 'New' },
+  { icon: MessageSquare, label: 'Messages', href: '/admin/messages', badge: 'New' },
   { icon: Layout, label: 'Landing CMS', href: '/admin/landing', badge: null },
   { icon: Palette, label: 'Theme & CSS', href: '/admin/theme', badge: null },
   { icon: Database, label: 'Database', href: '/admin/database', badge: null },
