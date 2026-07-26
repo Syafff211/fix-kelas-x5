@@ -1,15 +1,47 @@
-import { StudentSidebar } from '@/components/layout/StudentSidebar';
+'use client';
+
+import { useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { StudentNavbar } from '@/components/layout/StudentNavbar';
+import { useAuthStore } from '@/store';
 
 export default function DashboardLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const router = useRouter();
+  const { user, loading } = useAuthStore();
+
+  useEffect(() => {
+    // Only redirect if we're sure there's no user (not loading)
+    if (!loading && !user) {
+      router.push('/auth/login');
+    }
+  }, [user, loading, router]);
+
+  // Show loading screen while checking auth
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="text-center">
+          <div className="spinner mb-4" />
+          <p className="text-muted-foreground">Memuat dashboard...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Don't render if no user (will redirect)
+  if (!user) {
+    return null;
+  }
+
   return (
     <div className="min-h-screen bg-background">
-      <StudentSidebar />
-      <main className="lg:pl-[280px] transition-all duration-300">
-        <div className="container mx-auto px-4 py-6 pt-20 lg:pt-6">
+      <StudentNavbar />
+      <main className="pt-16">
+        <div className="container mx-auto px-4 py-6">
           {children}
         </div>
       </main>
