@@ -2,13 +2,16 @@
 
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Calendar, CheckCircle, XCircle, AlertCircle, Clock } from 'lucide-react';
+import { Calendar, CheckCircle, XCircle, AlertCircle, Clock, Send } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { useAuthStore } from '@/store';
 import { createClient } from '@/lib/supabase/client';
 import { format } from 'date-fns';
 import { id } from 'date-fns/locale';
+import { toast } from 'sonner';
 
 const supabase = createClient();
 
@@ -24,10 +27,15 @@ export default function AttendancePage() {
   const { user } = useAuthStore();
   const [attendances, setAttendances] = useState<Attendance[]>([]);
   const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [todayAttendance, setTodayAttendance] = useState<Attendance | null>(null);
+  const [selectedStatus, setSelectedStatus] = useState<string>('');
+  const [note, setNote] = useState('');
 
   useEffect(() => {
     if (user) {
       fetchAttendance();
+      checkTodayAttendance();
     }
   }, [user]);
 
@@ -45,6 +53,65 @@ export default function AttendancePage() {
       console.error('Error fetching attendance:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const checkTodayAttendance = async () => {
+    try {
+      const today = format(new Date(), 'yyyy-MM-dd');
+      const { data, error } = await supabase
+        .from('attendance')
+        .select('*')
+        .eq('student_id', user?.id)
+        .eq('date', today)
+        .single();
+
+      if (error && error.code !== 'PGRST116') throw error;
+      if (data) {
+        setTodayAttendance(data);
+        setSelectedStatus(data.status);
+        setNote(data.note || '');
+      }
+    } catch (error) {
+      console.error('Error checking today attendance:', error);
+    }
+  };
+
+  const submitAttendance = async () => {
+    if (!selectedStatus) {
+      toast.error('Pilih status kehadiran!');
+      return;
+    }
+
+    if ((selectedStatus === 'permission' || selectedStatus === 'sick') && !note.trim()) {
+      toast.error('Mohon isi alasan untuk izin atau sakit!');
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      const today = format(new Date(), 'yyyy-MM-dd');
+      const { data, error } = await supabase
+        .from('attendance')
+        .upsert({
+          student_id: user?.id,
+          date: today,
+          status: selectedStatus,
+          note: note.trim() || null,
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      setTodayAttendance(data);
+      setAttendances(prev => [data, ...prev.filter(a => a.date !== today)]);
+      toast.success('Absensi berhasil disimpan!');
+    } catch (error: any) {
+      console.error('Error submitting attendance:', error);
+      toast.error('Gagal menyimpan absensi: ' + error.message);
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -91,6 +158,14 @@ export default function AttendancePage() {
     return { variant: variants[status] || 'outline', label: labels[status] || status };
   };
 
+  const statusOptions = [
+    { value: 'present', label: 'Hadir', icon: CheckCircle, color: 'success' },
+    { value: 'late', label: 'Terlambat', icon: Clock, color: 'warning' },
+    { value: 'permission', label: 'Izin', icon: AlertCircle, color: 'info' },
+    { value: 'sick', label: 'Sakit', icon: AlertCircle, color: 'info' },
+    { value: 'absent', label: 'Absen', icon: XCircle, color: 'destructive' },
+  ];
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -106,13 +181,89 @@ export default function AttendancePage() {
     <div className="space-y-6">
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
         <h1 className="text-3xl font-bold mb-2">Kehadiran</h1>
-        <p className="text-muted-foreground">Riwayat kehadiran Anda</p>
+        <p className="text-muted-foreground">Absensi dan riwayat kehadiran Anda</p>
+      </motion.div>
+
+      {/* Absen Hari Ini */}
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
+        <Card className="bg-background/95 backdrop-blur-xl">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Calendar className="h-5 w-5 text-primary" />
+              Absen Hari Ini
+            </CardTitle>
+            <p className="text-sm text-muted-foreground">
+              {format(new Date(), 'EEEE, dd MMMM yyyy', { locale: id })}
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {todayAttendance ? (
+              <div className="p-4 rounded-lg bg-success/10 border border-success/20">
+                <div className="flex items-center gap-3">
+                  <CheckCircle className="h-6 w-6 text-success" />
+                  <div>
+                    <p className="font-semibold">Anda sudah absen hari ini</p>
+                    <p className="text-sm text-muted-foreground">
+                      Status: <Badge variant={getStatusBadge(todayAttendance.status).variant}>
+                        {getStatusBadge(todayAttendance.status).label}
+                      </Badge>
+                    </p>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+                  {statusOptions.map((option) => {
+                    const Icon = option.icon;
+                    const isSelected = selectedStatus === option.value;
+                    return (
+                      <Button
+                        key={option.value}
+                        variant={isSelected ? 'default' : 'outline'}
+                        onClick={() => setSelectedStatus(option.value)}
+                        className={`h-20 flex flex-col gap-2 ${
+                          isSelected ? `bg-${option.color} hover:bg-${option.color}/90` : ''
+                        }`}
+                      >
+                        <Icon className="h-5 w-5" />
+                        <span className="text-xs">{option.label}</span>
+                      </Button>
+                    );
+                  })}
+                </div>
+
+                {(selectedStatus === 'permission' || selectedStatus === 'sick') && (
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">
+                      Alasan {selectedStatus === 'permission' ? 'Izin' : 'Sakit'}
+                    </label>
+                    <Input
+                      placeholder="Contoh: Demam, Acara keluarga, dll"
+                      value={note}
+                      onChange={(e) => setNote(e.target.value)}
+                    />
+                  </div>
+                )}
+
+                <Button
+                  onClick={submitAttendance}
+                  disabled={!selectedStatus || submitting}
+                  className="w-full"
+                >
+                  <Send className="h-4 w-4 mr-2" />
+                  {submitting ? 'Menyimpan...' : 'Simpan Absensi'}
+                </Button>
+              </>
+            )}
+          </CardContent>
+        </Card>
       </motion.div>
 
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
-          <Card>
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
+          <Card className="bg-background/95 backdrop-blur-xl">
             <CardContent className="pt-6">
               <div className="flex items-center justify-between mb-2">
                 <Calendar className="h-5 w-5 text-primary" />
@@ -124,8 +275,8 @@ export default function AttendancePage() {
           </Card>
         </motion.div>
 
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>
-          <Card>
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }}>
+          <Card className="bg-background/95 backdrop-blur-xl">
             <CardContent className="pt-6">
               <div className="flex items-center justify-between mb-2">
                 <CheckCircle className="h-5 w-5 text-success" />
@@ -137,8 +288,8 @@ export default function AttendancePage() {
           </Card>
         </motion.div>
 
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
-          <Card>
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}>
+          <Card className="bg-background/95 backdrop-blur-xl">
             <CardContent className="pt-6">
               <div className="flex items-center justify-between mb-2">
                 <XCircle className="h-5 w-5 text-destructive" />
@@ -150,8 +301,8 @@ export default function AttendancePage() {
           </Card>
         </motion.div>
 
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }}>
-          <Card>
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.35 }}>
+          <Card className="bg-background/95 backdrop-blur-xl">
             <CardContent className="pt-6">
               <div className="flex items-center justify-between mb-2">
                 <Clock className="h-5 w-5 text-warning" />
@@ -163,8 +314,8 @@ export default function AttendancePage() {
           </Card>
         </motion.div>
 
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}>
-          <Card>
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }}>
+          <Card className="bg-background/95 backdrop-blur-xl">
             <CardContent className="pt-6">
               <div className="flex items-center justify-between mb-2">
                 <AlertCircle className="h-5 w-5 text-info" />
@@ -176,8 +327,8 @@ export default function AttendancePage() {
           </Card>
         </motion.div>
 
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.35 }}>
-          <Card>
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.45 }}>
+          <Card className="bg-background/95 backdrop-blur-xl">
             <CardContent className="pt-6">
               <div className="flex items-center justify-between mb-2">
                 <AlertCircle className="h-5 w-5 text-info" />
@@ -191,8 +342,8 @@ export default function AttendancePage() {
       </div>
 
       {/* Attendance List */}
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }}>
-        <Card>
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.5 }}>
+        <Card className="bg-background/95 backdrop-blur-xl">
           <CardHeader>
             <CardTitle>Riwayat Kehadiran</CardTitle>
           </CardHeader>
