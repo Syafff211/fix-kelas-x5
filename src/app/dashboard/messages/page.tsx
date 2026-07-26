@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Send, Smile, Paperclip, Search, Users, Check, CheckCheck, ArrowLeft } from 'lucide-react';
+import { Send, Smile, Paperclip, Search, Users, Check, CheckCheck, ArrowLeft, Mic, Image as ImageIcon, X } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -12,6 +12,7 @@ import { createClient } from '@/lib/supabase/client';
 import { formatDistanceToNow, format } from 'date-fns';
 import { id } from 'date-fns/locale';
 import { toast } from 'sonner';
+import { TypingIndicator } from '@/components/TypingIndicator';
 
 const supabase = createClient();
 
@@ -52,13 +53,17 @@ export default function StudentMessagesPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Fetch chat users (hanya sekali saat mount)
+  // Typing indicator
+  const { typingUsers, handleTyping, TypingDisplay } = TypingIndicator({
+    channelName: selectedChat ? `chat-${selectedChat}` : 'none',
+  });
+
+  // Fetch chat users
   useEffect(() => {
     if (!user) return;
 
     const fetchChatUsers = async () => {
       try {
-        // Get all students
         const { data: students, error: studentsError } = await supabase
           .from('profiles')
           .select('*')
@@ -68,10 +73,8 @@ export default function StudentMessagesPage() {
 
         if (studentsError) throw studentsError;
 
-        // Get last messages and unread counts for each user
         const usersWithMessages = await Promise.all(
           (students || []).map(async (student) => {
-            // Get last message
             const { data: lastMsg } = await supabase
               .from('messages')
               .select('*')
@@ -80,7 +83,6 @@ export default function StudentMessagesPage() {
               .limit(1)
               .single();
 
-            // Get unread count
             const { count: unreadCount } = await supabase
               .from('messages')
               .select('*', { count: 'exact', head: true })
@@ -101,7 +103,6 @@ export default function StudentMessagesPage() {
           })
         );
 
-        // Sort by last message time
         usersWithMessages.sort((a, b) => {
           if (!a.last_message_time) return 1;
           if (!b.last_message_time) return -1;
@@ -118,7 +119,7 @@ export default function StudentMessagesPage() {
     };
 
     fetchChatUsers();
-  }, [user?.id]); // Hanya depend on user.id
+  }, [user?.id]);
 
   // Fetch messages when chat is selected
   useEffect(() => {
@@ -142,7 +143,6 @@ export default function StudentMessagesPage() {
           setMessages(data);
           scrollToBottom();
           
-          // Mark messages as read
           await supabase
             .from('messages')
             .update({ is_read: true })
@@ -160,7 +160,7 @@ export default function StudentMessagesPage() {
 
     fetchMessages();
 
-    // Subscribe to real-time messages
+    // Real-time subscription
     const channel = supabase
       .channel(`chat_${user.id}_${selectedChat}`)
       .on(
@@ -177,14 +177,12 @@ export default function StudentMessagesPage() {
             (newMsg.sender_id === selectedChat && newMsg.receiver_id === user.id)
           ) {
             setMessages(prev => {
-              // Check if message already exists to prevent duplicates
               const exists = prev.some(m => m.id === newMsg.id);
               if (exists) return prev;
               return [...prev, { ...newMsg, sender: { full_name: user.full_name || 'You' } }];
             });
             scrollToBottom();
             
-            // Mark as read if received message
             if (newMsg.sender_id === selectedChat) {
               supabase
                 .from('messages')
@@ -217,18 +215,18 @@ export default function StudentMessagesPage() {
     };
   }, [selectedChat, user?.id]);
 
-  const scrollToBottom = useCallback(() => {
+  const scrollToBottom = () => {
     setTimeout(() => {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, 100);
-  }, []);
+  };
 
   const sendMessage = async () => {
     if (!newMessage.trim() || !selectedChat || !user || sending) return;
 
     setSending(true);
     const messageContent = newMessage.trim();
-    setNewMessage(''); // Clear input immediately
+    setNewMessage('');
 
     try {
       const { error } = await supabase.from('messages').insert([{
@@ -241,12 +239,23 @@ export default function StudentMessagesPage() {
       if (error) {
         console.error('Error sending message:', error);
         toast.error('Gagal mengirim pesan: ' + error.message);
-        setNewMessage(messageContent); // Restore input on error
+        setNewMessage(messageContent);
+      } else {
+        // Clear typing indicator
+        await supabase.channel(`typing:chat-${selectedChat}`).send({
+          type: 'broadcast',
+          event: 'typing',
+          payload: {
+            user_id: user.id,
+            full_name: user.full_name,
+            is_typing: false,
+          },
+        });
       }
     } catch (error: any) {
       console.error('Error sending message:', error);
       toast.error('Gagal mengirim pesan');
-      setNewMessage(messageContent); // Restore input on error
+      setNewMessage(messageContent);
     } finally {
       setSending(false);
       inputRef.current?.focus();
@@ -258,6 +267,11 @@ export default function StudentMessagesPage() {
       e.preventDefault();
       sendMessage();
     }
+  };
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setNewMessage(e.target.value);
+    handleTyping();
   };
 
   const formatMessageTime = (dateString: string) => {
@@ -298,7 +312,7 @@ export default function StudentMessagesPage() {
 
   const handleBackToList = () => {
     setSelectedChat(null);
-    setMessages([]); // Clear messages saat back
+    setMessages([]);
   };
 
   if (loadingUsers) {
@@ -313,9 +327,9 @@ export default function StudentMessagesPage() {
   }
 
   return (
-    <div className="h-[calc(100vh-8rem)] md:h-[calc(100vh-8rem)] flex gap-0 md:gap-4 overflow-hidden">
+    <div className="h-[calc(100vh-8rem)] flex gap-0 md:gap-4 overflow-hidden">
       {/* Chat List */}
-      <Card className={`w-full md:w-96 flex flex-col flex-shrink-0 ${selectedChat ? 'hidden md:flex' : 'flex'} rounded-none md:rounded-lg border-0 md:border border-white/10`}>
+      <Card className={`w-full md:w-96 flex flex-col flex-shrink-0 ${selectedChat ? 'hidden md:flex' : 'flex'} rounded-none md:rounded-lg border-0 md:border border-white/10 bg-background/95 backdrop-blur-xl`}>
         <div className="p-3 md:p-4 border-b border-white/10">
           <h2 className="text-lg md:text-xl font-bold mb-2 md:mb-3 flex items-center gap-2">
             <Users className="h-5 w-5" />
@@ -385,7 +399,7 @@ export default function StudentMessagesPage() {
       </Card>
 
       {/* Chat Window */}
-      <Card className={`flex-1 flex flex-col min-w-0 ${selectedChat ? 'flex' : 'hidden md:flex'} rounded-none md:rounded-lg border-0 md:border border-white/10`}>
+      <Card className={`flex-1 flex flex-col min-w-0 ${selectedChat ? 'flex' : 'hidden md:flex'} rounded-none md:rounded-lg border-0 md:border border-white/10 bg-background/95 backdrop-blur-xl`}>
         {selectedChat && selectedUser ? (
           <>
             {/* Chat Header */}
@@ -477,21 +491,32 @@ export default function StudentMessagesPage() {
               )}
             </div>
 
+            {/* Typing Indicator */}
+            <div className="px-3 md:px-4 py-2">
+              <TypingDisplay />
+            </div>
+
             {/* Message Input */}
             <div className="p-2 md:p-4 border-t border-white/10 bg-card flex-shrink-0">
               <div className="flex gap-1.5 md:gap-2 items-center">
                 <Button variant="ghost" size="icon" className="h-9 w-9 md:h-10 md:w-10 flex-shrink-0">
                   <Paperclip className="h-4 w-4 md:h-5 md:w-5" />
                 </Button>
+                <Button variant="ghost" size="icon" className="h-9 w-9 md:h-10 md:w-10 flex-shrink-0">
+                  <ImageIcon className="h-4 w-4 md:h-5 md:w-5" />
+                </Button>
                 <Input
                   ref={inputRef}
                   placeholder="Ketik pesan..."
                   value={newMessage}
-                  onChange={(e) => setNewMessage(e.target.value)}
+                  onChange={handleInputChange}
                   onKeyPress={handleKeyPress}
                   className="flex-1 h-9 md:h-10 text-sm md:text-base"
                   disabled={sending}
                 />
+                <Button variant="ghost" size="icon" className="h-9 w-9 md:h-10 md:w-10 flex-shrink-0">
+                  <Mic className="h-4 w-4 md:h-5 md:w-5" />
+                </Button>
                 <Button 
                   onClick={sendMessage} 
                   disabled={!newMessage.trim() || sending}
