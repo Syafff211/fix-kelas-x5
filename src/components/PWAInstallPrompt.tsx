@@ -33,42 +33,68 @@ export function PWAInstallPrompt() {
       }
     }
 
+    // Try to capture beforeinstallprompt event
     const handler = (e: Event) => {
       e.preventDefault();
       setDeferredPrompt(e);
-      
-      // Show prompt after 3 seconds
-      setTimeout(() => {
-        setShowPrompt(true);
-      }, 3000);
     };
 
     window.addEventListener('beforeinstallprompt', handler);
 
+    // Show prompt after 3 seconds (even if beforeinstallprompt not triggered)
+    const timer = setTimeout(() => {
+      setShowPrompt(true);
+    }, 3000);
+
     return () => {
       window.removeEventListener('beforeinstallprompt', handler);
+      clearTimeout(timer);
     };
   }, []);
 
   const handleInstall = async () => {
-    if (!deferredPrompt) {
-      // For iOS, show manual instructions
-      if (/iPad|iPhone|iPod/.test(navigator.userAgent)) {
-        alert('Untuk install di iOS:\n1. Tap tombol Share (kotak dengan panah ke atas)\n2. Scroll ke bawah dan tap "Add to Home Screen"\n3. Tap "Add"');
-        return;
+    if (deferredPrompt) {
+      // Use browser's native prompt
+      deferredPrompt.prompt();
+      const { outcome } = await deferredPrompt.userChoice;
+      
+      if (outcome === 'accepted') {
+        setIsInstalled(true);
       }
-      return;
+      
+      setDeferredPrompt(null);
+      setShowPrompt(false);
+    } else {
+      // Fallback: Show manual instructions
+      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+      const isAndroid = /Android/.test(navigator.userAgent);
+      
+      if (isIOS) {
+        alert(
+          '📱 Cara Install di iOS:\n\n' +
+          '1. Tap tombol Share (kotak dengan panah ke atas)\n' +
+          '2. Scroll ke bawah dan tap "Add to Home Screen"\n' +
+          '3. Tap "Add"\n\n' +
+          'App akan muncul di home screen kamu!'
+        );
+      } else if (isAndroid) {
+        alert(
+          '📱 Cara Install di Android:\n\n' +
+          '1. Tap menu (⋮) di pojok kanan atas Chrome\n' +
+          '2. Tap "Add to Home screen"\n' +
+          '3. Tap "Add"\n\n' +
+          'App akan muncul di home screen kamu!'
+        );
+      } else {
+        alert(
+          '💻 Cara Install di Desktop:\n\n' +
+          '1. Klik icon install di address bar (kanan)\n' +
+          '2. Atau klik menu (⋮) → "Install X-5 Purbalingga"\n' +
+          '3. Klik "Install"\n\n' +
+          'App akan muncul di desktop kamu!'
+        );
+      }
     }
-
-    deferredPrompt.prompt();
-    const { outcome } = await deferredPrompt.userChoice;
-    
-    if (outcome === 'accepted') {
-      setIsInstalled(true);
-    }
-    
-    setDeferredPrompt(null);
-    setShowPrompt(false);
   };
 
   const handleDismiss = () => {
@@ -97,7 +123,7 @@ export function PWAInstallPrompt() {
               </div>
               <div className="flex-1 min-w-0">
                 <h3 className="font-semibold text-sm mb-1">
-                  Install Aplikasi X-5 Purbalingga
+                  📱 Install Aplikasi X-5 Purbalingga
                 </h3>
                 <p className="text-xs text-muted-foreground mb-3">
                   Akses cepat dari layar utama. Bisa dipakai offline!
