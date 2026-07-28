@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
@@ -15,6 +15,7 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { toast } from 'sonner';
 import { ParticlesBackground } from '@/components/ui/ParticlesBackground';
+import { useAuthStore } from '@/store';
 
 const loginSchema = z.object({
   email: z.string().email('Email tidak valid'),
@@ -25,7 +26,15 @@ type LoginFormData = z.infer<typeof loginSchema>;
 
 export default function StudentLoginPage() {
   const router = useRouter();
+  const { user, loading: authLoading } = useAuthStore();
   const [isLoading, setIsLoading] = useState(false);
+
+  // Redirect if already logged in
+  useEffect(() => {
+    if (!authLoading && user) {
+      router.replace('/dashboard');
+    }
+  }, [user, authLoading, router]);
 
   const {
     register,
@@ -57,12 +66,15 @@ export default function StudentLoginPage() {
         await supabase.auth.refreshSession();
 
         toast.success('Login berhasil! Selamat datang.');
-        window.location.href = '/dashboard';
+        
+        // Use window.location.href to force reload and avoid cache issues
+        setTimeout(() => {
+          window.location.href = '/dashboard';
+        }, 500);
       }
     } catch (error: any) {
       console.error('Login error:', error);
       toast.error(error.message || 'Login gagal. Periksa email dan password.');
-    } finally {
       setIsLoading(false);
     }
   };
