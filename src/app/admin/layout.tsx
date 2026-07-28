@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { AdminNavbar } from '@/components/layout/AdminNavbar';
 import { useAuthStore } from '@/store';
@@ -12,20 +12,24 @@ export default function AdminLayout({
 }) {
   const router = useRouter();
   const { user, loading } = useAuthStore();
+  const [isChecking, setIsChecking] = useState(true);
 
   useEffect(() => {
-    // Only redirect if we're sure there's no user or not admin (not loading)
+    // Wait for auth to finish loading
     if (!loading) {
+      setIsChecking(false);
+      
+      // Only redirect if we're sure there's no user or not admin
       if (!user) {
-        router.push('/auth/admin');
+        router.replace('/auth/admin');
       } else if (user.role !== 'admin') {
-        router.push('/dashboard');
+        router.replace('/dashboard');
       }
     }
   }, [user, loading, router]);
 
-  // Show loading screen while checking auth
-  if (loading) {
+  // Show loading screen while checking auth OR still loading
+  if (loading || isChecking) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="text-center">
